@@ -8,7 +8,7 @@
   :root{
     --navy-900:#0b1220; --navy-850:#0f1a2b; --navy-800:#122036; --navy-750:#152744;
     --blue-500:#3aa0ff; --blue-400:#58b0ff; --blue-300:#8cc8ff;
-    --cyan-400:#3af2e8; --green-400:#38d677;
+    --cyan-400:#3af2e8; --green-400:#38d677; --green-500:#22c55e;
     --text-100:#e6eef7; --text-200:#c3d4ea; --muted-400:#7f9bb9; --danger-400:#ff6b6b;
     --card-radius:12px; --shadow:0 6px 18px rgba(0,0,0,.35); --mono:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   }
@@ -28,10 +28,11 @@
   .card-body{padding:14px; overflow:auto}
   .controls{display:grid; gap:12px}
   .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
-  button,select{
+  button,select,input[type="checkbox"]{
     background:linear-gradient(180deg, var(--navy-750), var(--navy-800));
     border:1px solid rgba(80,130,200,.25); color:var(--text-100); border-radius:10px; padding:10px 12px; font-size:14px; cursor:pointer; transition:all .15s ease;
   }
+  input[type="checkbox"]{ width:auto; padding:8px; border-radius:6px; }
   button:hover,select:hover{border-color:var(--blue-400); box-shadow:0 0 0 3px rgba(60,160,255,.15) inset}
   button.primary{background:linear-gradient(180deg,#0d2b4a,#0e2141); border-color:rgba(58,160,255,.7); color:var(--blue-300); font-weight:600}
   button.success{border-color:rgba(56,214,119,.6); color:var(--green-400)}
@@ -93,6 +94,13 @@
 
           <div class="divider"></div>
 
+          <div class="row" style="align-items:center">
+            <label style="margin:0">Guide Overlay</label>
+            <input type="checkbox" id="ckGuide" checked />
+          </div>
+
+          <div class="divider"></div>
+
           <div>
             <label for="difficulty">Difficulty</label>
             <select id="difficulty">
@@ -129,7 +137,7 @@
             <span><i class="board"></i> Board</span>
             <span><i class="teal"></i> Teal (Reveal)</span>
             <span><i class="green"></i> Green (Input)</span>
-            <span>Tip: Set Board → drag a square over the grid, then Edit with corner handles</span>
+            <span>Tip: Set Board → drag a square, then Edit with handles. Next tile is highlighted.</span>
           </div>
         </div>
       </div>
@@ -175,6 +183,7 @@
   const btnCalibrate = document.getElementById('btnCalibrate');
   const btnStart = document.getElementById('btnStart');
   const btnStop = document.getElementById('btnStop');
+  const ckGuide = document.getElementById('ckGuide');
 
   const selDifficulty = document.getElementById('difficulty');
   const btnRestoreDefaults = document.getElementById('btnRestoreDefaults');
@@ -195,8 +204,13 @@
     energyWindow:5, energyScale:2.5, requireColorToStartReveal:true, warmupMs:450,
     surgeRejectPct:0.4, inputTimeoutMs:12000, revealHardTimeoutMs:1800,
     clusterGapMs:900, rearmDelayMs:120,
+    // New guards
+    dedupeMs:160,                   // prevent same tile twice in same pulse cluster
+    belowLowFramesToBypass:2        // frames below low required to bypass refractory for repeats
   };
   const config = { ...defaultConfig };
+
+  let showGuide = true;
 
   let stream=null, track=null, running=false, detectionActive=false, hasBoard=false;
 
@@ -218,7 +232,7 @@
   // FPS
   let lastFPSTs=0, framesInBucket=0;
 
-  // Editor
+  // Editor (draw + handles + move)
   const editor = {
     mode: 'idle', // 'idle' | 'draw' | 'edit'
     rect: null,   // display coords
@@ -278,7 +292,8 @@
       ['thrHigh',config.thrHigh],['thrLow',config.thrLow],['holdFrames',config.holdFrames],['refractoryFrames',config.refractoryFrames],
       ['emaAlpha',config.emaAlpha],['energyWindow',config.energyWindow],['energyScale',config.energyScale],
       ['requireColorToStartReveal',String(config.requireColorToStartReveal)],['warmupMs',config.warmupMs],['surgeRejectPct',config.surgeRejectPct],
-      ['inputTimeoutMs',config.inputTimeoutMs],['revealHardTimeoutMs',config.revealHardTimeoutMs],['clusterGapMs',config.clusterGapMs],['rearmDelayMs',config.rearmDelayMs]
+      ['inputTimeoutMs',config.inputTimeoutMs],['revealHardTimeoutMs',config.revealHardTimeoutMs],['clusterGapMs',config.clusterGapMs],['rearmDelayMs',config.rearmDelayMs],
+      ['dedupeMs',config.dedupeMs],['belowLowFramesToBypass',config.belowLowFramesToBypass]
     ];
     for (const [k,v] of entries){
       const wrap=document.createElement('div');
@@ -343,9 +358,9 @@
     if (overlay.height !== h) overlay.height = h;
   }
 
-  // Draw overlay (board, tiles, editor visuals)
-  function drawOverlay(extra){
-    updateOverlayBox(); // keep overlay aligned to video box
+  // Draw overlay (board, tiles, editor, guide)
+  function drawOverlay(){
+    updateOverlayBox();
 
     const vw = overlay.width, vh = overlay.height;
     ctxOv.clearRect(0,0,vw,vh);
@@ -353,13 +368,13 @@
     const scaleX = vw / (video.videoWidth||1);
     const scaleY = vh / (video.videoHeight||1);
 
+    // Board + tiles
     if (boardRect && video.videoWidth){
       ctxOv.save();
       ctxOv.strokeStyle='rgba(88,176,255,0.95)'; ctxOv.setLineDash([6,4]); ctxOv.lineWidth=2;
       ctxOv.strokeRect(boardRect.x*scaleX, boardRect.y*scaleY, boardRect.w*scaleX, boardRect.h*scaleY);
       ctxOv.restore();
 
-      // Tiles
       ctxOv.save();
       ctxOv.strokeStyle='rgba(140,200,255,0.28)'; ctxOv.lineWidth=1;
       for (const t of tileRects){
@@ -368,18 +383,61 @@
       ctxOv.restore();
     }
 
-    // Editor visuals
+    // Guidance overlay: numbers + pulsing next tile
+    if (showGuide && phase === 'waiting-input' && revealSeq.length > 0 && boardRect){
+      const now = performance.now();
+      const pulse = 0.5 + 0.5*Math.sin(now/180); // 0..1
+      const nextIdx = revealSeq[inputSeq.length] ?? null;
+
+      ctxOv.save();
+      ctxOv.textAlign='center';
+      ctxOv.textBaseline='middle';
+      ctxOv.font='600 13px system-ui, -apple-system, Segoe UI, Roboto';
+
+      for (let i=0;i<revealSeq.length;i++){
+        const tileIdx = revealSeq[i];
+        const t = tileRects[tileIdx];
+        if (!t) continue;
+        const cx = (t.x + t.w/2)*scaleX;
+        const cy = (t.y + t.h/2)*scaleY;
+
+        // badge background
+        ctxOv.fillStyle = (i < inputSeq.length) ? 'rgba(34,197,94,0.85)' : 'rgba(88,176,255,0.85)';
+        ctxOv.beginPath();
+        ctxOv.arc(cx, cy, 11, 0, Math.PI*2);
+        ctxOv.fill();
+
+        // number
+        ctxOv.fillStyle = '#0b1220';
+        ctxOv.fillText(String(i+1), cx, cy);
+      }
+
+      // Pulse the next tile to press
+      if (nextIdx != null){
+        const t = tileRects[nextIdx];
+        if (t){
+          const x = t.x*scaleX, y = t.y*scaleY, w = t.w*scaleX, h = t.h*scaleY;
+          ctxOv.lineWidth = 3 + 2*pulse;
+          ctxOv.strokeStyle = `rgba(34,197,94,${0.55 + 0.35*pulse})`;
+          ctxOv.shadowColor = 'rgba(34,197,94,0.5)';
+          ctxOv.shadowBlur = 12*pulse;
+          ctxOv.strokeRect(x, y, w, h);
+        }
+      }
+      ctxOv.restore();
+    }
+
+    // Editor visuals (draw / edit with handles)
     if (editor.mode === 'draw' && editor.rect){
       const r = editor.rect;
+      const sq = squareFromRectCentered(r, vw, vh);
       ctxOv.save();
       ctxOv.setLineDash([8,6]); ctxOv.lineWidth=2; ctxOv.strokeStyle='rgba(88,176,255,0.95)';
       ctxOv.fillStyle='rgba(88,176,255,0.14)';
-      const sq = squareFromRectCentered(r, vw, vh);
       ctxOv.fillRect(sq.x, sq.y, sq.w, sq.h);
       ctxOv.strokeRect(sq.x, sq.y, sq.w, sq.h);
       ctxOv.restore();
     }
-
     if (editor.mode === 'edit' && editor.rect){
       const r = editor.rect;
       ctxOv.save();
@@ -392,8 +450,7 @@
       // handles
       ctxOv.save();
       const hs = editor.handleSize;
-      const handles = getHandleRects(r, hs);
-      for (const hnd of handles){
+      for (const hnd of getHandleRects(r, hs)){
         ctxOv.fillStyle = 'rgba(88,176,255,0.95)';
         ctxOv.fillRect(hnd.x, hnd.y, hnd.w, hnd.h);
         ctxOv.strokeStyle = '#0b1220';
@@ -420,11 +477,19 @@
   }
   function pointInRect(x,y,r){ return x>=r.x && x<=r.x+r.w && y>=r.y && y<=r.y+r.h; }
 
-  function clamp(value,min,max){ return Math.max(min, Math.min(max, value)); }
+  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+  function clampRect(x0,y0,dx,dy,maxW,maxH){
+    const x1 = clamp(x0+dx, 0, maxW);
+    const y1 = clamp(y0+dy, 0, maxH);
+    const x = clamp(Math.min(x0,x1), 0, maxW);
+    const y = clamp(Math.min(y0,y1), 0, maxH);
+    const w = clamp(Math.abs(x1-x0), 0, maxW - x);
+    const h = clamp(Math.abs(y1-y0), 0, maxH - y);
+    return { x, y, w, h };
+  }
 
-  // Square helpers
+  // Square helpers (centered snap; side-preserving resize/move)
   function squareFromRectCentered(r, maxW, maxH){
-    // make a square centered on r, clamped to bounds
     const cx = r.x + r.w/2;
     const cy = r.y + r.h/2;
     const side = Math.min(Math.max(r.w,r.h), Math.min(maxW, maxH));
@@ -432,13 +497,11 @@
     x = clamp(x, 0, maxW - side);
     y = clamp(y, 0, maxH - side);
     return { x, y, w: side, h: side };
-    }
+  }
   function squareResizeFromCorner(startRect, handle, dx, dy, maxW, maxH){
     const minSide = 20;
     let side = startRect.w; // square
-    let x = startRect.x;
-    let y = startRect.y;
-    // anchor per handle
+    let x = startRect.x, y = startRect.y;
     if (handle === 'se'){
       const desired = side + Math.max(dx, dy);
       const maxSide = Math.min(maxW - startRect.x, maxH - startRect.y);
@@ -479,7 +542,8 @@
     tileState = tileRects.map(()=>({
       baseline:0, delta:0,
       energyBuf:new Float32Array(config.energyWindow), energySum:0, eIdx:0,
-      hold:0, refractory:0, belowLow:true, lastHotTs:0
+      hold:0, refractory:0, lowCount:0, belowLow:true,
+      lastHotTs:0
     }));
     sampleOffsets = tileRects.map((t)=>{
       const pts=[], insetX=t.w*0.15, insetY=t.h*0.15, wSpan=t.w*0.70, hSpan=t.h*0.70;
@@ -501,7 +565,7 @@
     for (let i=0;i<tileRects.length;i++){
       const t=tileRects[i]; const avgL=avgTileLuminance(data,t);
       const st=tileState[i]; st.baseline=avgL; st.delta=0; st.energyBuf.fill(0); st.energySum=0; st.eIdx=0;
-      st.hold=0; st.refractory=0; st.belowLow=true;
+      st.hold=0; st.refractory=0; st.lowCount=0; st.belowLow=true;
     }
     warmupStartTs = performance.now();
   }
@@ -539,6 +603,24 @@
     const thr=(config.thrHigh-config.thrLow)*config.energyScale; return st.energySum>=thr;
   }
 
+  // FSM helpers with de-dupe guard
+  function pushRevealIfUnique(idx, tsNow){
+    const lastSame = revealSeq.length>0 && revealSeq[revealSeq.length-1] === idx;
+    const withinWindow = (tsNow - tileState[idx].lastHotTs) < config.dedupeMs;
+    if (lastSame && withinWindow) return false;
+    revealSeq.push(idx);
+    tileState[idx].lastHotTs = tsNow;
+    return true;
+  }
+  function pushInputIfUnique(idx, tsNow){
+    const lastSame = inputSeq.length>0 && inputSeq[inputSeq.length-1] === idx;
+    const withinWindow = (tsNow - tileState[idx].lastHotTs) < config.dedupeMs;
+    if (lastSame && withinWindow) return false;
+    inputSeq.push(idx);
+    tileState[idx].lastHotTs = tsNow;
+    return true;
+  }
+
   function handleFSMFrame(tsNow, events){
     const surgeLimit=Math.floor(tileRects.length*config.surgeRejectPct);
     const total=events.reveals.length + events.inputs.length;
@@ -552,13 +634,17 @@
       case 'armed':
         if (!inWarmup && config.requireColorToStartReveal && events.reveals.length>0){
           phase='reveal'; revealSeq=[]; inputSeq=[]; revealStartTs=tsNow; lastClusterTs=tsNow;
-          for (const idx of events.reveals){ revealSeq.push(idx); tileState[idx].lastHotTs=tsNow; hot=idx; }
+          for (const idx of events.reveals){
+            if (pushRevealIfUnique(idx, tsNow)) hot=idx;
+          }
         }
         break;
       case 'reveal': {
         const hardElapsed=tsNow-revealStartTs, sinceCluster=tsNow-lastClusterTs;
         if (!inWarmup && events.reveals.length>0){
-          for (const idx of events.reveals){ revealSeq.push(idx); tileState[idx].lastHotTs=tsNow; hot=idx; }
+          for (const idx of events.reveals){
+            if (pushRevealIfUnique(idx, tsNow)) hot=idx;
+          }
           lastClusterTs=tsNow;
         }
         if (revealSeq.length>=revealLenExpected || hardElapsed>=config.revealHardTimeoutMs || sinceCluster>=config.clusterGapMs){
@@ -569,7 +655,9 @@
       case 'waiting-input': {
         const inputElapsed=tsNow-inputStartTs;
         if (!inWarmup && events.inputs.length>0){
-          for (const idx of events.inputs){ inputSeq.push(idx); tileState[idx].lastHotTs=tsNow; hot=idx; }
+          for (const idx of events.inputs){
+            if (pushInputIfUnique(idx, tsNow)) hot=idx;
+          }
         }
         if (inputSeq.length>=revealLenExpected){
           roundIndex+=1; revealLenExpected=3+(roundIndex); phase='rearming'; rearmTs=tsNow; revealSeq=[]; inputSeq=[];
@@ -599,13 +687,23 @@
       const inWarmup=(tsNow - warmupStartTs) < config.warmupMs;
       if (inWarmup){ st.belowLow = delta<=config.thrLow; st.hold = (delta>=config.thrHigh)?Math.min(config.holdFrames, st.hold+1):0; continue; }
 
-      if (delta<=config.thrLow){ st.belowLow=true; st.refractory=0; } else { st.belowLow=false; if (st.refractory>0) st.refractory--; }
+      // Hysteresis + new lowCount latch
+      if (delta<=config.thrLow){ st.belowLow=true; st.lowCount = Math.min(255, st.lowCount+1); st.refractory=0; }
+      else { st.belowLow=false; st.lowCount=0; if (st.refractory>0) st.refractory--; }
+
       st.hold = (delta>=config.thrHigh)?Math.min(config.holdFrames, st.hold+1):0;
       const byHold=(st.hold>=config.holdFrames), byEnergy=updateEnergy(tsNow,i,delta);
-      const canTrigger=(st.refractory===0)||st.belowLow;
-      if (canTrigger && (byHold||byEnergy)){
-        if (phase==='armed' || phase==='reveal'){ if (cls.teal){ teal.push(i); st.refractory=config.refractoryFrames; } }
-        else if (phase==='waiting-input'){ if (cls.green){ green.push(i); st.refractory=config.refractoryFrames; } }
+
+      // Repeats allowed only after sustained below-low
+      const canRepeatBypass = st.lowCount >= config.belowLowFramesToBypass;
+      const canTrigger = (st.refractory===0) || canRepeatBypass;
+
+      if (canTrigger && (byHold || byEnergy)){
+        if (phase==='armed' || phase==='reveal'){
+          if (cls.teal){ teal.push(i); st.refractory=config.refractoryFrames; }
+        }else if (phase==='waiting-input'){
+          if (cls.green){ green.push(i); st.refractory=config.refractoryFrames; }
+        }
       }
     }
     return handleFSMFrame(tsNow, { reveals:teal, inputs:green });
@@ -614,7 +712,7 @@
   // Loops
   function uiLoop(){
     if (!running){ return; }
-    drawOverlay();
+    drawOverlay(); // runs every frame for smooth guide/editor visuals
     requestAnimationFrame(uiLoop);
   }
   function videoLoopRaf(){
@@ -687,7 +785,6 @@
 
   overlay.addEventListener('pointerup', ()=>{
     if (editor.mode==='draw' && editor.rect){
-      // Snap to centered square and enter edit
       const sq = squareFromRectCentered(editor.rect, overlay.width, overlay.height);
       editor.rect = sq;
       editor.mode = 'edit';
@@ -709,24 +806,11 @@
     else if (e.key==='ArrowRight'){ r = squareMove(r, step, 0, overlay.width, overlay.height); }
     else if (e.key==='ArrowUp'){ r = squareMove(r, 0, -step, overlay.width, overlay.height); }
     else if (e.key==='ArrowDown'){ r = squareMove(r, 0, step, overlay.width, overlay.height); }
-    else if (e.key==='Escape'){ // cancel edit
-      editor.mode='idle'; setOverlayPointer(false); btnDoneEdit.disabled=true;
-    }
+    else if (e.key==='Escape'){ editor.mode='idle'; setOverlayPointer(false); btnDoneEdit.disabled=true; }
     editor.rect = r; drawOverlay();
   });
 
-  function clampRect(x0,y0,dx,dy,maxW,maxH){
-    const x1 = clamp(x0+dx, 0, maxW);
-    const y1 = clamp(y0+dy, 0, maxH);
-    const x = clamp(Math.min(x0,x1), 0, maxW);
-    const y = clamp(Math.min(y0,y1), 0, maxH);
-    const w = clamp(Math.abs(x1-x0), 0, maxW - x);
-    const h = clamp(Math.abs(y1-y0), 0, maxH - y);
-    return { x, y, w, h };
-  }
-
   function commitEditorRectToBoard(){
-    // Convert display to video coords and build tiles + calibrate
     if (!editor.rect || !video.videoWidth) return;
     const vw = overlay.width, vh = overlay.height;
     const scaleX = (video.videoWidth||1) / vw;
@@ -738,12 +822,12 @@
     ensureTileState();
     calibrateBaselines();
     btnEditBoard.disabled = false;
-    btnClearBoard.disabled = true; // will enable after Done
+    btnClearBoard.disabled = false;
   }
 
   // Events
   btnCapture.addEventListener('click', startCapture);
-  btnStopCapture.addEventListener('click', ()=>{ stopCapture(); resetDetectionState({clearBoard:true}); });
+  btnStopCapture.addEventListener('click', ()=>{ stopCapture(); resetDetectionState({clearBoard:true}); drawOverlay(); });
 
   btnSetBoard.addEventListener('click', ()=>{
     if (!video.videoWidth){ alert('Start capture first.'); return; }
@@ -751,7 +835,6 @@
   });
   btnEditBoard.addEventListener('click', ()=>{
     if (!boardRect){ alert('Set the board first.'); return; }
-    // Seed editor from current boardRect (convert to display)
     const vw=overlay.width, vh=overlay.height;
     const sx = vw/(video.videoWidth||1), sy = vh/(video.videoHeight||1);
     editor.rect = { x: boardRect.x*sx, y: boardRect.y*sy, w: boardRect.w*sx, h: boardRect.h*sy };
@@ -760,8 +843,7 @@
   btnDoneEdit.addEventListener('click', ()=>{
     if (editor.mode!=='edit' || !editor.rect){ return; }
     commitEditorRectToBoard();
-    editor.mode='idle'; setOverlayPointer(false); btnDoneEdit.disabled=true; btnClearBoard.disabled=false;
-    drawOverlay();
+    editor.mode='idle'; setOverlayPointer(false); btnDoneEdit.disabled=true; drawOverlay();
   });
   btnClearBoard.addEventListener('click', ()=>{ resetDetectionState({clearBoard:true}); drawOverlay(); });
 
@@ -780,10 +862,10 @@
 
   selDifficulty.addEventListener('change', ()=>{ difficulty=selDifficulty.value; updateGridFromDifficulty(); resetDetectionState({clearBoard:true}); drawOverlay(); });
   btnRestoreDefaults.addEventListener('click', ()=>{ Object.assign(config, defaultConfig); createConfigGrid(); });
+  ckGuide.addEventListener('change', ()=>{ showGuide = ckGuide.checked; });
 
   // Init
   updateGridFromDifficulty(); createConfigGrid(); resetDetectionState({clearBoard:true});
-  // Ensure overlay aligns if the video box changes layout
   const ro = new ResizeObserver(()=> updateOverlayBox());
   ro.observe(previewWrap);
 })();
