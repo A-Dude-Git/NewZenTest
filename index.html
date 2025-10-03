@@ -10,7 +10,7 @@
     --blue-500:#3aa0ff; --blue-400:#58b0ff; --blue-300:#8cc8ff;
     --green-400:#38d677; --green-500:#22c55e; --red-400:#ef4444;
     --text-100:#e6eef7; --text-200:#c3d4ea; --muted-400:#7f9bb9;
-    --card-radius:12px; --shadow:0 6px 18px rgba(0,0,0,.35); --mono:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --card-radius:12px; --shadow:0 6px 18px rgba(0,0,0,.35); --mono:ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
   }
   *{box-sizing:border-box}
   html,body{height:100%}
@@ -114,7 +114,7 @@
               <span><i class="board"></i> Board</span>
               <span><i class="teal"></i> Teal (Reveal)</span>
               <span><i class="green"></i> Green (Input)</span>
-              <span>Guide shows only the next tile to press</span>
+              <span>Guide shows only the next tile to press (instant advance)</span>
             </div>
           </div>
 
@@ -184,16 +184,22 @@
   const elInputCount = document.getElementById('inputCount');
   const elGridSize = document.getElementById('gridSize');
 
-  // Config (timing-focused)
+  // Speed-focused defaults
   const defaultConfig = {
-    thrHigh:10, thrLow:6, holdFrames:1, refractoryFrames:6, emaAlpha:0.20,
-    energyWindow:5, energyScale:2.5, warmupMs:450, surgeRejectPct:0.4,
-    inputTimeoutMs:12000,
-    revealStepGapMs:140,
-    revealEndSilenceMs:700,
-    dedupeMs:160,
-    belowLowFramesToBypass:2,
-    rearmDelayMs:120,
+    // detection baseline
+    thrHigh:9, thrLow:5, holdFrames:0, refractoryFrames:3, emaAlpha:0.25,
+    energyWindow:4, energyScale:2.2, warmupMs:350, surgeRejectPct:0.45,
+    // input window
+    inputTimeoutMs:8000,
+    // cluster timing (fast)
+    revealStepGapMs:150,
+    revealEndSilenceMs:300,
+    // de-dupe and repeats
+    dedupeMs:90,
+    belowLowFramesToBypass:0,
+    // rearm
+    rearmDelayMs:100,
+    // behavior
     requireColorToStartReveal:true
   };
   const config = { ...defaultConfig };
@@ -214,7 +220,7 @@
 
   // FSM
   let phase='idle'; // 'idle'|'armed'|'reveal'|'waiting-input'|'rearming'
-  let roundIndex=0;       // 0-based
+  let roundIndex=0;
   let revealSeq=[];       // captured steps
   let inputSeq=[];        // accepted inputs (strict order)
   let revealLenExpected=0;
@@ -229,101 +235,36 @@
   // FPS
   let lastFPSTs=0, framesInBucket=0;
 
-  // Visual error flash on wrong press
+  // Wrong press flash
   let badPressTs=0, badPressTile=-1;
 
   // Editor
   const editor = { mode:'idle', rect:null, activeHandle:null, start:{x:0,y:0}, rectStart:null, handleSize:12 };
 
-  // Helpers
-  function updateGridFromDifficulty(){
-    switch(difficulty){
-      case 'easy': rows=4; cols=4; break;
-      case 'medium': rows=5; cols=5; break;
-      case 'hard': case 'expert': rows=6; cols=6; break;
-      default: rows=6; cols=6;
-    }
-    elGridSize.textContent = `${cols}×${rows}`;
-  }
-  function resetDetectionState({clearBoard=true}={}){
-    detectionActive=false; btnStart.disabled=false; btnStop.disabled=true;
-    phase='idle'; roundIndex=0; revealSeq=[]; inputSeq=[]; revealLenExpected=0;
-    warmupStartTs=performance.now();
-    stepCluster=null; lastTealTs=0; badPressTs=0; badPressTile=-1;
-    guideHeader.style.display='none'; guideHeader.textContent='';
-    if (clearBoard){
-      boardRect=null; tileRects=[]; tileState=[]; sampleOffsets=[]; hasBoard=false;
-      btnEditBoard.disabled=true; btnDoneEdit.disabled=true; btnClearBoard.disabled=true;
-      Object.assign(editor,{mode:'idle',rect:null,activeHandle:null});
-    }
-    updateStatus();
-  }
-  function resetRounds(){
-    roundIndex=0; revealSeq=[]; inputSeq=[]; revealLenExpected=0;
-    phase='armed'; warmupStartTs=performance.now(); stepCluster=null; lastTealTs=0;
-    guideHeader.style.display='none'; guideHeader.textContent='';
-    updateStatus();
-  }
-  function updateStatus(){
-    elPhase.textContent=phase;
-    elRound.textContent=String(roundIndex+1);
-    elRevealCount.textContent=String(revealSeq.length);
-    elInputCount.textContent=String(inputSeq.length);
-  }
-
-  // Timing UI
-  function buildTimingPanel(){
-    timingGrid.innerHTML='';
-    const fields = [
-      {key:'revealStepGapMs', label:'Step Gap (ms)', step:10, min:80, max:400},
-      {key:'revealEndSilenceMs', label:'Reveal End Silence (ms)', step:25, min:300, max:2000},
-      {key:'dedupeMs', label:'Pulse Dedupe (ms)', step:10, min:60, max:600},
-      {key:'belowLowFramesToBypass', label:'Below-Low Frames to Repeat', step:1, min:0, max:12},
-      {key:'holdFrames', label:'Hold Frames', step:1, min:0, max:8},
-      {key:'refractoryFrames', label:'Refractory Frames', step:1, min:0, max:20},
-      {key:'inputTimeoutMs', label:'Input Timeout (ms)', step:250, min:3000, max:30000},
-      {key:'rearmDelayMs', label:'Rearm Delay (ms)', step:10, min:30, max:500},
-    ];
-    for (const f of fields){
-      const wrap=document.createElement('div');
-      const lab=document.createElement('label'); lab.textContent=f.label; lab.htmlFor=`tim_${f.key}`;
-      const inp=document.createElement('input');
-      inp.type='number'; inp.id=`tim_${f.key}`; inp.value=String(config[f.key]);
-      if (f.step!=null) inp.step=String(f.step);
-      if (f.min!=null) inp.min=String(f.min);
-      if (f.max!=null) inp.max=String(f.max);
-      inp.addEventListener('change', ()=>{
-        const v=Number(inp.value); if (!Number.isFinite(v)) return;
-        config[f.key] = (f.key==='holdFrames'||f.key==='refractoryFrames'||f.key==='belowLowFramesToBypass') ? Math.round(v) : v;
-      });
-      wrap.appendChild(lab); wrap.appendChild(inp);
-      timingGrid.appendChild(wrap);
-    }
-  }
-  btnTimingDefaults.addEventListener('click', ()=>{ Object.assign(config, defaultConfig); buildTimingPanel(); });
-
-  // Capture
-  async function startCapture(){
-    try{
-      stream = await navigator.mediaDevices.getDisplayMedia({
-        video:{ displaySurface:'window', frameRate:{ideal:60,max:60}, cursor:'never' }, audio:false
-      });
-      video.srcObject = stream;
-      track = stream.getVideoTracks()[0];
-      try{ await track.applyConstraints({ frameRate:{ideal:60,max:60} }); }catch(_){}
-      try{ if ('contentHint' in track) track.contentHint='motion'; }catch(_){}
-      btnCapture.disabled=true; btnStopCapture.disabled=false;
-      running=true; startLoops();
-    }catch(e){ console.error(e); alert('Screen/window capture was not granted.'); }
-  }
-  function stopCapture(){
-    if (stream){ stream.getTracks().forEach(t=>t.stop()); }
-    stream=null; track=null; video.srcObject=null; running=false;
-    btnCapture.disabled=false; btnStopCapture.disabled=true;
-  }
-
-  // Math
+  // Utils
+  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
   function luminance(r,g,b){ return 0.2126*r + 0.7152*g + 0.0722*b; }
+  function rgbToHsv(r,g,b){
+    r/=255; g/=255; b/=255;
+    const max=Math.max(r,g,b), min=Math.min(r,g,b);
+    const d=max-min;
+    let h=0;
+    if (d!==0){
+      if (max===r) h=((g-b)/d)%6;
+      else if (max===g) h=(b-r)/d+2;
+      else h=(r-g)/d+4;
+      h*=60; if (h<0) h+=360;
+    }
+    const s=max===0?0:d/max;
+    const v=max;
+    return [h,s,v];
+  }
+
+  // Color classifiers (RGB + HSV fallback)
+  function isTealRGB(r,g,b){ return g>=90 && b>=90 && g>=1.22*r && b>=1.12*r && g<=1.65*b; }
+  function isGreenRGB(r,g,b){ return g>=105 && g>=1.38*r && g>=1.2*b; }
+  function isTealHSV(h,s,v){ return s>=0.25 && v>=0.28 && h>=160 && h<=205; }
+  function isGreenHSV(h,s,v){ return s>=0.30 && v>=0.32 && h>=80 && h<=150; }
 
   // Overlay sizing
   function updateOverlayBox(){
@@ -356,6 +297,289 @@
     return out;
   }
 
+  // UI status
+  function updateGridFromDifficulty(){
+    switch(difficulty){
+      case 'easy': rows=4; cols=4; break;
+      case 'medium': rows=5; cols=5; break;
+      case 'hard': case 'expert': rows=6; cols=6; break;
+      default: rows=6; cols=6;
+    }
+    elGridSize.textContent = `${cols}×${rows}`;
+  }
+  function updateStatus(){
+    elPhase.textContent=phase;
+    elRound.textContent=String(roundIndex+1);
+    elRevealCount.textContent=String(revealSeq.length);
+    elInputCount.textContent=String(inputSeq.length);
+  }
+  function resetDetectionState({clearBoard=true}={}){
+    detectionActive=false; btnStart.disabled=false; btnStop.disabled=true;
+    phase='idle'; roundIndex=0; revealSeq=[]; inputSeq=[]; revealLenExpected=0;
+    warmupStartTs=performance.now();
+    stepCluster=null; lastTealTs=0; badPressTs=0; badPressTile=-1;
+    guideHeader.style.display='none'; guideHeader.textContent='';
+    if (clearBoard){
+      boardRect=null; tileRects=[]; tileState=[]; sampleOffsets=[]; hasBoard=false;
+      btnEditBoard.disabled=true; btnDoneEdit.disabled=true; btnClearBoard.disabled=true;
+      Object.assign(editor,{mode:'idle',rect:null,activeHandle:null});
+    }
+    updateStatus();
+  }
+  function resetRounds(){
+    roundIndex=0; revealSeq=[]; inputSeq=[]; revealLenExpected=0;
+    phase='armed'; warmupStartTs=performance.now(); stepCluster=null; lastTealTs=0;
+    guideHeader.style.display='none'; guideHeader.textContent='';
+    updateStatus();
+  }
+
+  // Timing panel
+  function buildTimingPanel(){
+    timingGrid.innerHTML='';
+    const fields = [
+      {key:'revealStepGapMs', label:'Step Gap (ms)', step:10, min:80, max:400},
+      {key:'revealEndSilenceMs', label:'Reveal End Silence (ms)', step:10, min:150, max:1500},
+      {key:'dedupeMs', label:'Pulse Dedupe (ms)', step:10, min:60, max:300},
+      {key:'belowLowFramesToBypass', label:'Below-Low Frames to Repeat', step:1, min:0, max:8},
+      {key:'holdFrames', label:'Hold Frames', step:1, min:0, max:6},
+      {key:'refractoryFrames', label:'Refractory Frames', step:1, min:0, max:12},
+      {key:'inputTimeoutMs', label:'Input Timeout (ms)', step:250, min:3000, max:20000},
+      {key:'rearmDelayMs', label:'Rearm Delay (ms)', step:10, min:50, max:500},
+    ];
+    for (const f of fields){
+      const wrap=document.createElement('div');
+      const lab=document.createElement('label'); lab.textContent=f.label; lab.htmlFor=`tim_${f.key}`;
+      const inp=document.createElement('input');
+      inp.type='number'; inp.id=`tim_${f.key}`; inp.value=String(config[f.key]);
+      if (f.step!=null) inp.step=String(f.step);
+      if (f.min!=null) inp.min=String(f.min);
+      if (f.max!=null) inp.max=String(f.max);
+      inp.addEventListener('change', ()=>{
+        const v=Number(inp.value); if (!Number.isFinite(v)) return;
+        config[f.key] = (['holdFrames','refractoryFrames','belowLowFramesToBypass'].includes(f.key)) ? Math.round(v) : v;
+      });
+      wrap.appendChild(lab); wrap.appendChild(inp);
+      timingGrid.appendChild(wrap);
+    }
+  }
+  btnTimingDefaults.addEventListener('click', ()=>{ Object.assign(config, defaultConfig); buildTimingPanel(); });
+
+  // Capture
+  async function startCapture(){
+    try{
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video:{ displaySurface:'window', frameRate:{ideal:60,max:60}, cursor:'never' }, audio:false
+      });
+      video.srcObject = stream;
+      track = stream.getVideoTracks()[0];
+      try{ await track.applyConstraints({ frameRate:{ideal:60,max:60} }); }catch(_){}
+      try{ if ('contentHint' in track) track.contentHint='motion'; }catch(_){}
+      btnCapture.disabled=true; btnStopCapture.disabled=false;
+      running=true; startLoops();
+    }catch(e){ console.error(e); alert('Screen/window capture was not granted.'); }
+  }
+  function stopCapture(){
+    if (stream){ stream.getTracks().forEach(t=>t.stop()); }
+    stream=null; track=null; video.srcObject=null; running=false;
+    btnCapture.disabled=false; btnStopCapture.disabled=true;
+  }
+
+  // Sampling and classification
+  function ensureTileState(){
+    tileState = tileRects.map(()=>({
+      baseline:0, delta:0,
+      energyBuf:new Float32Array(config.energyWindow), energySum:0, eIdx:0,
+      hold:0, refractory:0, lowCount:0, belowLow:true,
+      lastHotTs:0
+    }));
+    sampleOffsets = tileRects.map((t)=>{
+      const pts=[], insetX=t.w*0.15, insetY=t.h*0.15, wSpan=t.w*0.70, hSpan=t.h*0.70;
+      for (let yi=0; yi<5; yi++){ for (let xi=0; xi<5; xi++){ pts.push([insetX+wSpan*(xi/4), insetY+hSpan*(yi/4)]); } }
+      return pts;
+    });
+  }
+  function readBoardImageData(){
+    if (!boardRect || !video.videoWidth) return null;
+    work.width=Math.max(2,Math.floor(boardRect.w)); work.height=Math.max(2,Math.floor(boardRect.h));
+    wctx.drawImage(video, boardRect.x,boardRect.y,boardRect.w,boardRect.h, 0,0, work.width,work.height);
+    return wctx.getImageData(0,0,work.width,work.height);
+  }
+  function avgTileLuminance(img,t){
+    const sx=work.width/boardRect.w, sy=work.height/boardRect.h, off=sampleOffsets[t.index];
+    let sum=0;
+    for (let i=0;i<off.length;i++){
+      const ox=off[i][0]*sx + (t.x-boardRect.x)*sx, oy=off[i][1]*sy + (t.y-boardRect.y)*sy;
+      const xi=Math.max(0,Math.min(work.width-1,ox|0)), yi=Math.max(0,Math.min(work.height-1,oy|0));
+      const idx=(yi*work.width+xi)*4; sum += luminance(img.data[idx], img.data[idx+1], img.data[idx+2]);
+    }
+    return sum/off.length;
+  }
+  function classifyTile(img,t){
+    const sx=work.width/boardRect.w, sy=work.height/boardRect.h, off=sampleOffsets[t.index];
+    let tealHits=0, greenHits=0;
+    for (let i=0;i<off.length;i++){
+      const ox=off[i][0]*sx + (t.x-boardRect.x)*sx, oy=off[i][1]*sy + (t.y-boardRect.y)*sy;
+      const xi=Math.max(0,Math.min(work.width-1,ox|0)), yi=Math.max(0,Math.min(work.height-1,oy|0));
+      const idx=(yi*work.width+xi)*4, r=img.data[idx], g=img.data[idx+1], b=img.data[idx+2];
+      if (isTealRGB(r,g,b)) tealHits++; else {
+        const [h,s,v]=rgbToHsv(r,g,b); if (isTealHSV(h,s,v)) tealHits++;
+      }
+      if (isGreenRGB(r,g,b)) greenHits++; else {
+        const [h2,s2,v2]=rgbToHsv(r,g,b); if (isGreenHSV(h2,s2,v2)) greenHits++;
+      }
+    }
+    return { teal: tealHits>=3, green: greenHits>=3 };
+  }
+  function updateEnergy(tsNow,i,delta){
+    const st=tileState[i]; const v=Math.max(0, delta-config.thrLow);
+    const old=st.energyBuf[st.eIdx]; st.energyBuf[st.eIdx]=v; st.eIdx=(st.eIdx+1)%config.energyWindow; st.energySum+=v-old;
+    const thr=(config.thrHigh-config.thrLow)*config.energyScale; return st.energySum>=thr;
+  }
+
+  // Reveal clustering (fast, aggressive finalization)
+  function addToCluster(tsNow, indices){
+    if (indices.length===0) return;
+    if (!stepCluster) stepCluster = { startTs: tsNow, tally: new Map() };
+    for (const idx of indices){
+      stepCluster.tally.set(idx, (stepCluster.tally.get(idx)||0)+1);
+    }
+    lastTealTs = tsNow;
+  }
+  function finalizeCluster(tsNow){
+    if (!stepCluster) return -1;
+    let bestIdx=-1, bestCount=-1;
+    for (const [idx,count] of stepCluster.tally){
+      if (count>bestCount){ bestCount=count; bestIdx=idx; }
+    }
+    stepCluster=null;
+    if (bestIdx>=0){
+      const st=tileState[bestIdx];
+      const within = st && ((tsNow - st.lastHotTs) < config.dedupeMs);
+      if (!within){
+        revealSeq.push(bestIdx);
+        if (st) st.lastHotTs=tsNow;
+        elRevealCount.textContent=String(revealSeq.length);
+        return bestIdx;
+      }
+    }
+    return -1;
+  }
+  function maybeFinalizeCluster(tsNow){
+    if (!stepCluster) return -1;
+    if ((tsNow - lastTealTs) >= config.revealStepGapMs){
+      return finalizeCluster(tsNow);
+    }
+    return -1;
+  }
+  function shouldEndReveal(tsNow, tealCountThisFrame){
+    // End quickly after last cluster closed and a tiny silence
+    const silence = tsNow - lastTealTs;
+    return (!stepCluster) && (silence >= config.revealEndSilenceMs) && tealCountThisFrame===0;
+  }
+
+  // Per-frame processing
+  function processFrame(tsNow){
+    if (!hasBoard || !detectionActive) return;
+    const img = readBoardImageData(); if (!img) return;
+
+    const tealIndices=[], greenIndices=[];
+    const inWarm = (tsNow - warmupStartTs) < config.warmupMs;
+
+    for (let i=0;i<tileRects.length;i++){
+      const t=tileRects[i], st=tileState[i];
+      const cls=classifyTile(img,t);
+      const avg=avgTileLuminance(img,t);
+      st.baseline = st.baseline*(1-config.emaAlpha) + avg*config.emaAlpha;
+      const delta = st.delta = avg - st.baseline;
+
+      if (inWarm){ st.belowLow = delta<=config.thrLow; st.hold=(delta>=config.thrHigh)?Math.min(config.holdFrames, st.hold+1):0; continue; }
+
+      if (delta<=config.thrLow){ st.belowLow=true; st.lowCount=Math.min(255, st.lowCount+1); st.refractory=0; }
+      else { st.belowLow=false; st.lowCount=0; if (st.refractory>0) st.refractory--; }
+
+      st.hold=(delta>=config.thrHigh)?Math.min(config.holdFrames, st.hold+1):0;
+      const byHold=(st.hold>=config.holdFrames), byEnergy=updateEnergy(tsNow,i,delta);
+      const canRepeatBypass = st.lowCount >= config.belowLowFramesToBypass;
+      const canTrigger = (st.refractory===0) || canRepeatBypass;
+
+      if (canTrigger && (byHold||byEnergy)){
+        if (phase==='armed' || phase==='reveal'){ if (cls.teal){ tealIndices.push(i); st.refractory=config.refractoryFrames; } }
+        else if (phase==='waiting-input'){ if (cls.green){ greenIndices.push(i); st.refractory=config.refractoryFrames; } }
+      }
+    }
+
+    // FSM
+    switch(phase){
+      case 'idle': break;
+
+      case 'armed':
+        if (!inWarm && config.requireColorToStartReveal && tealIndices.length>0){
+          phase='reveal';
+          revealSeq=[]; inputSeq=[];
+          stepCluster=null; lastTealTs=tsNow;
+          addToCluster(tsNow, tealIndices);
+        }
+        break;
+
+      case 'reveal': {
+        // Accumulate current flashes
+        if (tealIndices.length>0) addToCluster(tsNow, tealIndices);
+
+        // Close a step if gap reached
+        maybeFinalizeCluster(tsNow);
+
+        // If no teal and we already closed last cluster, finish reveal fast
+        if (shouldEndReveal(tsNow, tealIndices.length)){
+          phase='waiting-input';
+          inputSeq=[]; inputStartTs=tsNow;
+          revealLenExpected = revealSeq.length;
+
+          // Show first step immediately
+          guideHeader.style.display='block';
+          guideHeader.textContent = `Step 1 / ${revealLenExpected}`;
+        }
+        break;
+      }
+
+      case 'waiting-input': {
+        const expected = revealSeq[inputSeq.length] ?? -1;
+        const inputElapsed = tsNow - inputStartTs;
+
+        // Fast acceptance of the expected tile
+        if (!inWarm && greenIndices.length>0){
+          if (greenIndices.includes(expected)){
+            const within = (tsNow - tileState[expected].lastHotTs) < config.dedupeMs;
+            if (!within){
+              inputSeq.push(expected);
+              tileState[expected].lastHotTs = tsNow;
+              elInputCount.textContent=String(inputSeq.length);
+            }
+          } else {
+            // Wrong press: flash red but don't block
+            badPressTile = greenIndices[0];
+            badPressTs = tsNow;
+          }
+        }
+
+        // Move to next tile instantly (header updates in draw)
+        // Completion conditions
+        if (inputSeq.length >= revealLenExpected && revealLenExpected>0){
+          roundIndex += 1;
+          phase='rearming'; rearmTs=tsNow;
+          revealSeq=[]; inputSeq=[]; revealLenExpected=0;
+          guideHeader.style.display='none';
+        }else if (inputElapsed >= config.inputTimeoutMs){
+          phase='rearming'; rearmTs=tsNow; revealSeq=[]; inputSeq=[]; revealLenExpected=0; guideHeader.style.display='none';
+        }
+        break;
+      }
+
+      case 'rearming':
+        if (tsNow - rearmTs >= config.rearmDelayMs){ phase='armed'; warmupStartTs=tsNow; }
+        break;
+    }
+  }
+
   // Overlay drawing
   function drawOverlay(){
     updateOverlayBox();
@@ -379,15 +603,15 @@
       ctxOv.restore();
     }
 
-    // Step-by-step guide during input
+    // Step-by-step guide (fast advance)
     if (phase==='waiting-input' && revealSeq.length>0 && boardRect){
-      const k = inputSeq.length; const N = revealLenExpected;
+      const k = inputSeq.length; const N = revealLenExpected || revealSeq.length;
       guideHeader.style.display='block';
       guideHeader.textContent = `Step ${Math.min(k+1,N)} / ${N}`;
-      const nextIdx = revealSeq[k] ?? null;
 
+      const nextIdx = revealSeq[k] ?? null;
       const now = performance.now();
-      const pulse = 0.5 + 0.5*Math.sin(now/180);
+      const pulse = 0.5 + 0.5*Math.sin(now/150);
       if (nextIdx != null){
         const t = tileRects[nextIdx];
         if (t){
@@ -398,14 +622,14 @@
           ctxOv.strokeRect(x,y,w,h);
         }
       }
-      // wrong press flash (brief red outline)
-      if (badPressTile>=0 && (now - badPressTs) < 350){
+      // wrong press flash
+      if (badPressTile>=0 && (now - badPressTs) < 280){
         const t = tileRects[badPressTile];
         if (t){
           const x=t.x*sx, y=t.y*sy, w=t.w*sx, h=t.h*sy;
           ctxOv.lineWidth = 4;
           ctxOv.strokeStyle = 'rgba(239,68,68,0.9)';
-          ctxOv.shadowColor = 'rgba(239,68,68,0.6)'; ctxOv.shadowBlur = 10;
+          ctxOv.shadowColor = 'rgba(239,68,68,0.6)'; ctxOv.shadowBlur = 8;
           ctxOv.strokeRect(x,y,w,h);
         }
       }
@@ -445,7 +669,6 @@
   }
   function hitTestHandle(x,y,r,hs){ for (const h of getHandleRects(r,hs)){ if (x>=h.x&&x<=h.x+h.w&&y>=h.y&&y<=h.y+h.h) return h.name; } return null; }
   function pointInRect(x,y,r){ return x>=r.x && x<=r.x+r.w && y>=r.y && y<=r.y+r.h; }
-  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
   function clampRect(x0,y0,dx,dy,maxW,maxH){
     const x1=clamp(x0+dx,0,maxW), y1=clamp(y0+dy,0,maxH);
     const x=clamp(Math.min(x0,x1),0,maxW), y=clamp(Math.min(y0,y1),0,maxH);
@@ -470,186 +693,16 @@
     return {x,y,w:startRect.w,h:startRect.h};
   }
 
-  // Sampling & classification
-  function ensureTileState(){
-    tileState = tileRects.map(()=>({
-      baseline:0, delta:0,
-      energyBuf:new Float32Array(config.energyWindow), energySum:0, eIdx:0,
-      hold:0, refractory:0, lowCount:0, belowLow:true,
-      lastHotTs:0
-    }));
-    sampleOffsets = tileRects.map((t)=>{
-      const pts=[], insetX=t.w*0.15, insetY=t.h*0.15, wSpan=t.w*0.70, hSpan=t.h*0.70;
-      for (let yi=0; yi<5; yi++){ for (let xi=0; xi<5; xi++){ pts.push([insetX+wSpan*(xi/4), insetY+hSpan*(yi/4)]); } }
-      return pts;
-    });
-  }
-  function isTealRGB(r,g,b){ return g>=96 && b>=96 && g>=1.25*r && b>=1.15*r && g<=1.6*b; }
-  function isGreenRGB(r,g,b){ return g>=110 && g>=1.4*r && g>=1.25*b; }
-
-  function readBoardImageData(){
-    if (!boardRect || !video.videoWidth) return null;
-    work.width=Math.max(2,Math.floor(boardRect.w)); work.height=Math.max(2,Math.floor(boardRect.h));
-    wctx.drawImage(video, boardRect.x,boardRect.y,boardRect.w,boardRect.h, 0,0, work.width,work.height);
-    return wctx.getImageData(0,0,work.width,work.height);
-  }
-  function avgTileLuminance(img,t){
-    const sx=work.width/boardRect.w, sy=work.height/boardRect.h, off=sampleOffsets[t.index];
-    let sum=0;
-    for (let i=0;i<off.length;i++){
-      const ox=off[i][0]*sx + (t.x-boardRect.x)*sx, oy=off[i][1]*sy + (t.y-boardRect.y)*sy;
-      const xi=Math.max(0,Math.min(work.width-1,ox|0)), yi=Math.max(0,Math.min(work.height-1,oy|0));
-      const idx=(yi*work.width+xi)*4; sum += luminance(img.data[idx], img.data[idx+1], img.data[idx+2]);
-    }
-    return sum/off.length;
-  }
-  function classifyTileRGB(img,t){
-    const sx=work.width/boardRect.w, sy=work.height/boardRect.h, off=sampleOffsets[t.index];
-    let teal=0, green=0;
-    for (let i=0;i<off.length;i++){
-      const ox=off[i][0]*sx + (t.x-boardRect.x)*sx, oy=off[i][1]*sy + (t.y-boardRect.y)*sy;
-      const xi=Math.max(0,Math.min(work.width-1,ox|0)), yi=Math.max(0,Math.min(work.height-1,oy|0));
-      const idx=(yi*work.width+xi)*4, r=img.data[idx], g=img.data[idx+1], b=img.data[idx+2];
-      if (isTealRGB(r,g,b)) teal++;
-      if (isGreenRGB(r,g,b)) green++;
-    }
-    return { teal: teal>=3, green: green>=3 };
-  }
-  function updateEnergy(tsNow,i,delta){
-    const st=tileState[i]; const v=Math.max(0, delta-config.thrLow);
-    const old=st.energyBuf[st.eIdx]; st.energyBuf[st.eIdx]=v; st.eIdx=(st.eIdx+1)%config.energyWindow; st.energySum+=v-old;
-    const thr=(config.thrHigh-config.thrLow)*config.energyScale; return st.energySum>=thr;
-  }
-
-  // Reveal clustering helpers
-  function addToCluster(tsNow, indices){
-    if (indices.length===0) return;
-    if (!stepCluster) stepCluster = { startTs: tsNow, tally: new Map() };
-    for (const idx of indices){
-      stepCluster.tally.set(idx, (stepCluster.tally.get(idx)||0)+1);
-    }
-    lastTealTs = tsNow;
-  }
-  function maybeFinalizeCluster(tsNow){
-    if (!stepCluster) return -1;
-    if ((tsNow - lastTealTs) >= config.revealStepGapMs){
-      let bestIdx=-1, bestCount=-1;
-      for (const [idx,count] of stepCluster.tally){
-        if (count>bestCount){ bestCount=count; bestIdx=idx; }
-      }
-      stepCluster=null;
-      if (bestIdx>=0){
-        const st=tileState[bestIdx];
-        const within = st && ((tsNow - st.lastHotTs) < config.dedupeMs);
-        if (!within){
-          revealSeq.push(bestIdx);
-          if (st) st.lastHotTs=tsNow;
-          elRevealCount.textContent=String(revealSeq.length);
-          return bestIdx;
-        }
-      }
-    }
-    return -1;
-  }
-  function shouldEndReveal(tsNow){
-    return (revealSeq.length>0) && !stepCluster && ((tsNow - lastTealTs) >= config.revealEndSilenceMs);
-  }
-
-  // Frame processing
-  function processFrame(tsNow){
-    if (!hasBoard || !detectionActive) return;
-    const img = readBoardImageData(); if (!img) return;
-
-    const tealIndices=[], greenIndices=[];
-    const inWarm = (tsNow - warmupStartTs) < config.warmupMs;
-
+  // FSM helpers
+  function calibrateBaselines(){
+    if (!hasBoard) return;
+    const data = readBoardImageData(); if (!data) return;
     for (let i=0;i<tileRects.length;i++){
-      const t=tileRects[i], st=tileState[i];
-      const cls=classifyTileRGB(img,t);
-      const avg=avgTileLuminance(img,t);
-      st.baseline = st.baseline*(1-config.emaAlpha) + avg*config.emaAlpha;
-      const delta = st.delta = avg - st.baseline;
-
-      if (inWarm){ st.belowLow = delta<=config.thrLow; st.hold=(delta>=config.thrHigh)?Math.min(config.holdFrames, st.hold+1):0; continue; }
-
-      if (delta<=config.thrLow){ st.belowLow=true; st.lowCount=Math.min(255, st.lowCount+1); st.refractory=0; }
-      else { st.belowLow=false; st.lowCount=0; if (st.refractory>0) st.refractory--; }
-      st.hold=(delta>=config.thrHigh)?Math.min(config.holdFrames, st.hold+1):0;
-      const byHold=(st.hold>=config.holdFrames), byEnergy=updateEnergy(tsNow,i,delta);
-      const canRepeatBypass = st.lowCount >= config.belowLowFramesToBypass;
-      const canTrigger = (st.refractory===0) || canRepeatBypass;
-
-      if (canTrigger && (byHold||byEnergy)){
-        if (phase==='armed' || phase==='reveal'){ if (cls.teal){ tealIndices.push(i); st.refractory=config.refractoryFrames; } }
-        else if (phase==='waiting-input'){ if (cls.green){ greenIndices.push(i); st.refractory=config.refractoryFrames; } }
-      }
+      const t=tileRects[i]; const avg=avgTileLuminance(data,t);
+      const st=tileState[i]; st.baseline=avg; st.delta=0; st.energyBuf.fill(0); st.energySum=0; st.eIdx=0;
+      st.hold=0; st.refractory=0; st.lowCount=0; st.belowLow=true; st.lastHotTs=0;
     }
-
-    // FSM
-    switch(phase){
-      case 'idle': break;
-
-      case 'armed':
-        if (!inWarm && config.requireColorToStartReveal && tealIndices.length>0){
-          phase='reveal';
-          revealSeq=[]; inputSeq=[];
-          stepCluster=null; lastTealTs=tsNow;
-          addToCluster(tsNow, tealIndices);
-        }
-        break;
-
-      case 'reveal': {
-        addToCluster(tsNow, tealIndices);
-        maybeFinalizeCluster(tsNow);
-        if (shouldEndReveal(tsNow)){
-          phase='waiting-input';
-          inputSeq=[]; inputStartTs=tsNow;
-          revealLenExpected = revealSeq.length;
-          // Show header immediately
-          guideHeader.style.display='block';
-          guideHeader.textContent = `Step 1 / ${revealLenExpected}`;
-        }
-        break;
-      }
-
-      case 'waiting-input': {
-        const expected = revealSeq[inputSeq.length] ?? -1;
-        const inputElapsed = tsNow - inputStartTs;
-
-        // Only accept the expected tile; ignore others but flash them red
-        if (!inWarm && greenIndices.length>0){
-          if (greenIndices.includes(expected)){
-            // Accept once
-            const lastSame = inputSeq.length>0 && inputSeq[inputSeq.length-1]===expected;
-            const within = (tsNow - tileState[expected].lastHotTs) < config.dedupeMs;
-            if (!(lastSame && within)){
-              inputSeq.push(expected);
-              tileState[expected].lastHotTs = tsNow;
-              elInputCount.textContent=String(inputSeq.length);
-            }
-          } else {
-            // Wrong press feedback (red)
-            badPressTile = greenIndices[0];
-            badPressTs = tsNow;
-          }
-        }
-
-        // Progress / completion
-        if (inputSeq.length >= revealLenExpected && revealLenExpected>0){
-          roundIndex += 1;
-          phase='rearming'; rearmTs=tsNow;
-          revealSeq=[]; inputSeq=[]; revealLenExpected=0;
-          guideHeader.style.display='none';
-        }else if (inputElapsed >= config.inputTimeoutMs){
-          phase='rearming'; rearmTs=tsNow; revealSeq=[]; inputSeq=[]; revealLenExpected=0; guideHeader.style.display='none';
-        }
-        break;
-      }
-
-      case 'rearming':
-        if (tsNow - rearmTs >= config.rearmDelayMs){ phase='armed'; warmupStartTs=tsNow; }
-        break;
-    }
+    warmupStartTs = performance.now();
   }
 
   // Loops
@@ -777,18 +830,6 @@
 
   const ro = new ResizeObserver(()=> updateOverlayBox());
   ro.observe(previewWrap);
-
-  // Calibration baseline helper
-  function calibrateBaselines(){
-    if (!hasBoard) return;
-    const data = readBoardImageData(); if (!data) return;
-    for (let i=0;i<tileRects.length;i++){
-      const t=tileRects[i]; const avg=avgTileLuminance(data,t);
-      const st=tileState[i]; st.baseline=avg; st.delta=0; st.energyBuf.fill(0); st.energySum=0; st.eIdx=0;
-      st.hold=0; st.refractory=0; st.lowCount=0; st.belowLow=true; st.lastHotTs=0;
-    }
-    warmupStartTs = performance.now();
-  }
 })();
 </script>
 </body>
