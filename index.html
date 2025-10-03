@@ -3,13 +3,12 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Zen Solver</title>
+<title>Zen Solver (New Engine)</title>
 <style>
   :root{
     --navy-900:#0b1220; --navy-850:#0f1a2b; --navy-800:#122036; --navy-750:#152744;
     --blue-500:#3aa0ff; --blue-400:#58b0ff; --blue-300:#8cc8ff;
-    --green-400:#38d677; --red-400:#ef4444; --pink-400:#ff5ad6;
-    --text-100:#e6eef7; --text-200:#c3d4ea; --muted-400:#7f9bb9;
+    --green-400:#38d677; --text-100:#e6eef7; --text-200:#c3d4ea; --muted-400:#7f9bb9;
     --card-radius:12px; --shadow:0 6px 18px rgba(0,0,0,.35); --mono:ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
   }
   *{box-sizing:border-box}
@@ -18,7 +17,7 @@
     margin:0; background:radial-gradient(1200px 800px at 20% 0%, var(--navy-800), var(--navy-900));
     color:var(--text-100); font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height:1.4;
   }
-  .app{display:grid; grid-template-columns:440px 1fr; gap:16px; padding:16px; height:100dvh}
+  .app{display:grid; grid-template-columns:420px 1fr; gap:16px; padding:16px; height:100dvh}
   .card{
     background:linear-gradient(180deg, var(--navy-800), var(--navy-850));
     border:1px solid rgba(90,140,200,.15); border-radius:var(--card-radius); box-shadow:var(--shadow);
@@ -28,80 +27,75 @@
   .card-body{padding:14px; overflow:auto}
   .controls{display:grid; gap:12px}
   .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
-  button,select,input[type="checkbox"]{
+  button,select{
     background:linear-gradient(180deg, var(--navy-750), var(--navy-800));
     border:1px solid rgba(80,130,200,.25); color:var(--text-100); border-radius:10px; padding:10px 12px; font-size:14px; cursor:pointer; transition:all .15s ease;
   }
   button:hover,select:hover{border-color:var(--blue-400); box-shadow:0 0 0 3px rgba(60,160,255,.15) inset}
   button.primary{background:linear-gradient(180deg,#0d2b4a,#0e2141); border-color:rgba(58,160,255,.7); color:var(--blue-300); font-weight:600}
   button.success{border-color:rgba(56,214,119,.6); color:var(--green-400)}
-  button.warn{border-color:rgba(255,107,107,.5); color:#ff9b9b}
   button.ghost{border-color:rgba(120,170,230,.35); color:var(--text-200)}
   button:disabled{opacity:.55; cursor:not-allowed}
   label{display:block; margin-bottom:6px; color:var(--text-200)}
-  input[type="number"]{
+  input[type="number"], input[type="text"]{
     width:100%; padding:8px 10px; border-radius:8px;
     background:linear-gradient(180deg, var(--navy-750), var(--navy-800));
     border:1px solid rgba(80,130,200,.25); color:var(--text-100);
     font-variant-numeric: tabular-nums; font-family: var(--mono);
   }
-  .status{display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin-top:8px; font-family:var(--mono); font-variant-numeric:tabular-nums}
+  .status{display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin-top:8px; font-family:var(--mono); font-variant-numeric:tabular-nums}
   .status div{padding:8px; background:linear-gradient(180deg, var(--navy-800), var(--navy-850)); border:1px solid rgba(90,140,200,.2); border-radius:8px; color:var(--text-200)}
   .status strong{color:var(--text-100)}
   .preview-wrap{position:relative; width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:radial-gradient(800px 600px at 50% 0%, #0e1a2e, #0b1220)}
   video{max-width:100%; max-height:100%; border-radius:10px; border:1px solid rgba(80,130,200,.25); background:#000}
   canvas.overlay{
-    position:absolute;
-    z-index:3;
-    touch-action:none;
-    user-select:none;
-    -webkit-user-select:none;
+    position:absolute; z-index:3; touch-action:none; user-select:none; -webkit-user-select:none;
   }
   .overlay.pe-none{pointer-events:none}
   .overlay.pe-auto{pointer-events:auto}
-  .grid{display:grid; gap:10px}
-  .grid.cols-2{grid-template-columns:1fr 1fr}
-  .grid.cols-3{grid-template-columns:1fr 1fr 1fr}
-  .divider{height:1px; background:linear-gradient(90deg, transparent, rgba(130,160,210,.25), transparent); margin:8px 0}
-  .badge{display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; border:1px solid rgba(90,140,200,.25); color:var(--text-200); font-size:12px; background:linear-gradient(180deg, var(--navy-800), var(--navy-850))}
-  .badge .dot{width:8px; height:8px; border-radius:50%; background:var(--blue-500)}
-  .badge.lowfps{border-color:rgba(255,90,214,.6); color:#ffc8f0}
-  .legend{display:flex; gap:10px; flex-wrap:wrap; margin-top:6px; color:var(--muted-400); font-size:12px}
-  .legend span{display:inline-flex; align-items:center; gap:6px}
-  .legend .teal{width:10px; height:10px; background:#2dd4d4; border-radius:2px}
-  .legend .green{width:10px; height:10px; background:#22c55e; border-radius:2px}
-  .legend .board{width:10px; height:10px; background:transparent; border:1px dashed #58b0ff; border-radius:2px}
   .guideHeader{
     position:absolute; left:12px; top:12px; padding:6px 10px; border-radius:10px;
     background:rgba(10,18,32,0.55); border:1px solid rgba(140,200,255,0.35); backdrop-filter: blur(4px);
-    font-weight:600; color:#cfe6ff; z-index:2; pointer-events:none;
-  }
-  .debugCanvas{
-    width:100%; height:auto; background:#0b1220; border:1px solid rgba(90,140,200,.2); border-radius:8px;
+    font-weight:600; color:#cfe6ff; z-index:4; pointer-events:none;
   }
   .engineBadge{
     position:absolute; right:12px; top:12px; z-index:4;
     padding:6px 10px; border-radius:10px; font-weight:700; letter-spacing:.3px;
-    border:1px solid rgba(140,200,255,.35); background:rgba(10,18,32,.55); color:#cfe6ff
+    border:1px solid rgba(140,200,255,.35); background:rgba(10,18,32,.55); color:#caffdf
   }
-  .engineBadge.old{border-color:#ffb4b4; color:#ffd6d6}
-  .engineBadge.new{border-color:#8cffc1; color:#caffdf}
+  details {
+    border:1px solid rgba(120,170,230,.15);
+    border-radius:10px;
+    padding:8px 10px;
+    background:linear-gradient(180deg, var(--navy-800), var(--navy-850));
+  }
+  details > summary {
+    cursor: pointer;
+    list-style: none;
+    color: var(--text-200);
+    font-weight: 600;
+  }
+  details[open] { border-color: rgba(120,170,230,.35); }
+  .legend{display:flex; gap:10px; flex-wrap:wrap; margin-top:6px; color:var(--muted-400); font-size:12px}
+  .legend span{display:inline-flex; align-items:center; gap:6px}
+  .legend .board{width:10px; height:10px; background:transparent; border:1px dashed #58b0ff; border-radius:2px}
+  .legend .green{width:10px; height:10px; background:#22c55e; border-radius:2px}
   @media (max-width:1100px){.app{grid-template-columns:1fr; height:auto}.card-body{max-height:55vh}.preview-wrap{height:55vh}}
 </style>
 </head>
 <body>
   <div class="app">
-    <!-- Left: Controls + Debug -->
+    <!-- Left: Controls -->
     <section class="card">
       <div class="card-header">
         <div>Controls</div>
-        <div class="badge"><span class="dot"></span> Zen Solver</div>
+        <div class="engineBadge">NEW</div>
       </div>
       <div class="card-body">
         <div class="controls">
           <div class="row">
             <button id="btnCapture" class="primary">Start Capture</button>
-            <button id="btnStopCapture" class="warn" disabled>Stop Capture</button>
+            <button id="btnStopCapture" class="ghost" disabled>Stop Capture</button>
           </div>
 
           <div class="row">
@@ -112,18 +106,10 @@
           </div>
 
           <div class="row">
-            <button id="btnCalibrate" class="">Calibrate</button>
-            <button id="btnStart" class="success">Start Detection</button>
-            <button id="btnStop" class="warn" disabled>Stop Detection</button>
-            <button id="btnResetRounds" class="">Reset Rounds</button>
+            <button id="btnStart" class="success" disabled>Start Detection</button>
+            <button id="btnStop" class="ghost" disabled>Stop Detection</button>
+            <button id="btnResetRounds" class="ghost" disabled>Reset Rounds</button>
           </div>
-
-          <!-- NEW: Mode toggle row -->
-          <div class="row">
-            <button id="btnMode" class="ghost" title="Toggle between Old and New engines">Mode: New</button>
-          </div>
-
-          <div class="divider"></div>
 
           <div>
             <label for="difficulty">Difficulty</label>
@@ -135,81 +121,58 @@
             </select>
             <div class="legend">
               <span><i class="board"></i> Board</span>
-              <span><i class="teal"></i> Teal (Reveal)</span>
-              <span><i class="green"></i> Green (Input)</span>
-              <span>Guide shows only the next tile</span>
+              <span><i class="green"></i> Next input highlight</span>
+              <span>Grid preview appears while drawing/editing</span>
             </div>
           </div>
 
-          <div class="divider"></div>
-
-          <div>
-            <div style="display:flex;align-items:center;justify-content:space-between">
-              <label>Timing</label>
-              <button id="btnTimingDefaults" title="Restore Timing Defaults">Restore Timing Defaults</button>
-            </div>
-            <div class="grid cols-2" id="timingGrid"></div>
-          </div>
-
-          <div class="divider"></div>
-
-          <div>
-            <div style="display:flex;align-items:center;justify-content:space-between">
-              <label>Debug</label>
-              <div class="row" style="gap:8px">
-                <label style="margin:0;display:flex;align-items:center;gap:6px"><input type="checkbox" id="ckDebug" /> Enable</label>
+          <details id="advDetails">
+            <summary>Advanced (collapsed)</summary>
+            <div class="row" style="margin-top:8px; width:100%">
+              <div style="flex:1; min-width:180px">
+                <label>Reveal End Silence (ms)</label>
+                <input id="inpRevealEndSilence" type="number" min="300" max="2000" step="25" />
+              </div>
+              <div style="flex:1; min-width:180px">
+                <label>Input Timeout (ms)</label>
+                <input id="inpInputTimeout" type="number" min="3000" max="30000" step="250" />
               </div>
             </div>
-            <div class="grid cols-3" id="debugToggles">
-              <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="ckDbgHeat" /> Overlay Heatmap</label>
-              <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="ckDbgSamples" /> Overlay Samples</label>
-              <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="ckDbgLabels" /> Overlay Labels</label>
+            <div class="row" style="margin-top:8px; width:100%">
+              <div style="flex:1; min-width:180px">
+                <label>Teal Mask (hex, e.g. ffff00)</label>
+                <input id="inpTealMask" type="text" placeholder="ffff00" />
+              </div>
+              <div style="flex:1; min-width:180px">
+                <label>Teal Key (hex, e.g. 84a000)</label>
+                <input id="inpTealKey" type="text" placeholder="84a000" />
+              </div>
+              <div style="flex:1; min-width:180px">
+                <label>Green Key (hex, e.g. 5cac24)</label>
+                <input id="inpGreenKey" type="text" placeholder="5cac24" />
+              </div>
             </div>
-            <div class="row" style="gap:10px;align-items:center;margin-top:6px">
-              <label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="ckIgnoreCursor" checked /> Ignore Cursor</label>
-              <label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="ckIgnoreNearMouse" checked /> Mask Near Mouse</label>
-              <label style="margin:0;display:flex;align-items:center;gap:6px">Radius
-                <input type="number" id="inpCursorRadius" min="4" max="40" step="1" value="12" style="width:72px" />
-              </label>
+            <div class="row" style="margin-top:8px">
+              <button id="btnRestoreDefaults" class="ghost">Restore Advanced Defaults</button>
             </div>
-            <div class="row" style="align-items:center">
-              <label style="margin:0">Viewer</label>
-              <select id="selDbgView">
-                <option value="raw">Raw</option>
-                <option value="grayscale">Grayscale L</option>
-                <option value="delta">Delta Heatmap</option>
-                <option value="teal">Teal Mask</option>
-                <option value="green">Green Mask</option>
-              </select>
-            </div>
-            <canvas id="debugView" class="debugCanvas" width="384" height="384"></canvas>
-            <div class="legend" style="margin-top:6px">
-              <span>Delta: +hot = yellow/red, -cool = blue</span>
-              <span>Teal/Green masks show tile-level hit ratio</span>
-            </div>
-          </div>
-
-          <div class="divider"></div>
+          </details>
 
           <div class="status" id="status">
-            <div>Mode: <strong id="modeName">New</strong></div>
             <div>FPS: <strong id="fps">0</strong></div>
             <div>Phase: <strong id="phase">idle</strong></div>
             <div>Round: <strong id="round">1</strong></div>
             <div>Reveal: <strong id="revealCount">0</strong></div>
             <div>Input: <strong id="inputCount">0</strong></div>
             <div>Grid: <strong id="gridSize">6×6</strong></div>
-            <div id="lowfpsBadge" class="badge lowfps" style="display:none">Low FPS</div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Center: Video + Overlay -->
+    <!-- Right: Video + Overlay -->
     <section class="card">
       <div class="card-header">Preview</div>
       <div class="preview-wrap" id="previewWrap">
-        <div id="engineBadge" class="engineBadge new">NEW</div>
         <div id="guideHeader" class="guideHeader" style="display:none">Step 1 / 1</div>
         <video id="video" autoplay playsinline muted></video>
         <canvas id="overlay" class="overlay pe-none"></canvas>
@@ -224,7 +187,6 @@
   const overlay = document.getElementById('overlay');
   const previewWrap = document.getElementById('previewWrap');
   const guideHeader = document.getElementById('guideHeader');
-  const engineBadge = document.getElementById('engineBadge');
   const ctxOv = overlay.getContext('2d', { alpha: true });
 
   const btnCapture = document.getElementById('btnCapture');
@@ -233,128 +195,136 @@
   const btnEditBoard = document.getElementById('btnEditBoard');
   const btnDoneEdit = document.getElementById('btnDoneEdit');
   const btnClearBoard = document.getElementById('btnClearBoard');
-  const btnCalibrate = document.getElementById('btnCalibrate');
   const btnStart = document.getElementById('btnStart');
   const btnStop = document.getElementById('btnStop');
   const btnResetRounds = document.getElementById('btnResetRounds');
-  const btnMode = document.getElementById('btnMode');
 
   const selDifficulty = document.getElementById('difficulty');
-  const btnTimingDefaults = document.getElementById('btnTimingDefaults');
-  const timingGrid = document.getElementById('timingGrid');
+  const advDetails = document.getElementById('advDetails');
+  const inpRevealEndSilence = document.getElementById('inpRevealEndSilence');
+  const inpInputTimeout = document.getElementById('inpInputTimeout');
+  const inpTealMask = document.getElementById('inpTealMask');
+  const inpTealKey = document.getElementById('inpTealKey');
+  const inpGreenKey = document.getElementById('inpGreenKey');
+  const btnRestoreDefaults = document.getElementById('btnRestoreDefaults');
 
-  const ckDebug = document.getElementById('ckDebug');
-  const ckDbgHeat = document.getElementById('ckDbgHeat');
-  const ckDbgSamples = document.getElementById('ckDbgSamples');
-  const ckDbgLabels = document.getElementById('ckDbgLabels');
-  const ckIgnoreCursor = document.getElementById('ckIgnoreCursor');
-  const ckIgnoreNearMouse = document.getElementById('ckIgnoreNearMouse');
-  const inpCursorRadius = document.getElementById('inpCursorRadius');
-  const selDbgView = document.getElementById('selDbgView');
-  const debugView = document.getElementById('debugView');
-  const ctxDbg = debugView.getContext('2d', { alpha: false });
-
-  const elModeName = document.getElementById('modeName');
   const elFPS = document.getElementById('fps');
   const elPhase = document.getElementById('phase');
   const elRound = document.getElementById('round');
   const elRevealCount = document.getElementById('revealCount');
   const elInputCount = document.getElementById('inputCount');
   const elGridSize = document.getElementById('gridSize');
-  const lowfpsBadge = document.getElementById('lowfpsBadge');
 
-  // Config
+  // Config (New engine only)
   const defaultConfig = {
-    thrHigh:10, thrLow:6, holdFrames:1, refractoryFrames:6, emaAlpha:0.20,
-    energyWindow:5, energyScale:2.5, warmupMs:450,
     revealEndSilenceMs:700,
-    dedupeMs:160,
-    belowLowFramesToBypass:2,
     inputTimeoutMs:12000,
     rearmDelayMs:120,
-    requireColorToStartReveal:true,
-    // Old engine (RLE) knobs
-    winnerModeWindow:3,
-    stepPersistFrames:2,
-    minSwitchGapMs:90,
-    minTealHits:4,
-    // Cursor suppression (Old)
-    ignoreCursor:true,
-    ignoreNearMouse:true,
-    cursorWhiteSatMax:0.16,
-    cursorWhiteVMin:0.88,
-    cursorMaskRadiusPx:12,
-    cursorMaskRecentMs:120,
-    // New engine (modal color) constants
+    // Modal color classifier
     modal: {
-      dropMask: 0xfcfcfc,     // drop low 2 bits per channel
-      tealMask: 0xffff00,     // mask band for teal/cyan-ish
-      tealKey:  0x84a000,     // masked value for teal (tune if needed)
-      greenKey: 0x5cac24,     // green match after dropMask (tune if needed)
-      sampleGrid: 10          // 10x10 modal sample
+      dropMask: 0xfcfcfc,  // drop low 2 bits per channel
+      tealMask: 0xffff00,  // mask for teal-ish band
+      tealKey:  0x84a000,  // expected masked teal value (tune as needed)
+      greenKey: 0x5cac24,  // exact green after dropMask (tune as needed)
+      sampleGrid: 10       // 10x10 samples inside tile
     }
   };
-  const config = { ...defaultConfig };
-  const eff = { winnerModeWindow:config.winnerModeWindow, stepPersistFrames:config.stepPersistFrames, minSwitchGapMs:config.minSwitchGapMs, minTealHits:config.minTealHits, energyWindow:config.energyWindow };
+  const config = JSON.parse(JSON.stringify(defaultConfig)); // deep-ish clone
 
-  // Mode: true = New (VideoFrame+modal), false = Old (EMA/RLE)
-  let perfModeEnabled = (typeof VideoFrame !== 'undefined'); // default to New if supported
-
-  function updateModeUI(){
-    const name = perfModeEnabled ? 'New' : 'Old';
-    btnMode.textContent = `Mode: ${name}`;
-    elModeName.textContent = name;
-    engineBadge.textContent = name.toUpperCase();
-    engineBadge.classList.toggle('new', perfModeEnabled);
-    engineBadge.classList.toggle('old', !perfModeEnabled);
+  // Populate advanced inputs and wire changes
+  function hex(v){ return (v>>>0).toString(16).padStart(6,'0'); }
+  function parseHexInput(el, fallback){
+    const s = (el.value||'').trim().replace(/^0x/,'').toLowerCase();
+    if (!/^[0-9a-f]{6}$/.test(s)) return fallback;
+    return parseInt(s, 16)>>>0;
   }
-
-  // Debug state
-  const debug = { enabled:false, overlayHeatmap:false, overlaySamples:false, overlayLabels:false, view:'raw' };
-
-  // Cursor mask tracking (Old engine)
-  let lastMouse = { xOverlay:-1, yOverlay:-1, xWork:-1, yWork:-1, inBoard:false, ts:0 };
-  function updateLastMouseFromEvent(e){
-    const now = performance.now();
-    const cr = overlay.getBoundingClientRect();
-    const xo = (e.clientX ?? (e.touches && e.touches[0]?.clientX) ?? 0) - cr.left;
-    const yo = (e.clientY ?? (e.touches && e.touches[0]?.clientY) ?? 0) - cr.top;
-
-    const sxV = (video.videoWidth||1) / overlay.width;
-    const syV = (video.videoHeight||1) / overlay.height;
-    const xv = xo * sxV, yv = yo * syV;
-
-    let inBoard=false, xw=-1, yw=-1;
-    if (boardRect && work.width>0 && work.height>0){
-      const xb = xv - boardRect.x, yb = yv - boardRect.y;
-      if (xb>=0 && yb>=0 && xb<=boardRect.w && yb<=boardRect.h){
-        const sxW = work.width / boardRect.w;
-        const syW = work.height / boardRect.h;
-        xw = xb * sxW; yw = yb * syW;
-        inBoard = true;
-      }
-    }
-    lastMouse = { xOverlay:xo, yOverlay:yo, xWork:xw, yWork:yw, inBoard, ts:now };
+  function syncAdvancedUI(){
+    inpRevealEndSilence.value = String(config.revealEndSilenceMs);
+    inpInputTimeout.value = String(config.inputTimeoutMs);
+    inpTealMask.value = hex(config.modal.tealMask);
+    inpTealKey.value  = hex(config.modal.tealKey);
+    inpGreenKey.value = hex(config.modal.greenKey);
   }
-  previewWrap.addEventListener('pointermove', updateLastMouseFromEvent, { passive:true });
-  previewWrap.addEventListener('pointerenter', updateLastMouseFromEvent, { passive:true });
-  previewWrap.addEventListener('pointerleave', ()=>{ lastMouse.inBoard=false; }, { passive:true });
+  inpRevealEndSilence.addEventListener('change', ()=>{ const v=+inpRevealEndSilence.value; if (Number.isFinite(v)) config.revealEndSilenceMs = Math.max(300, Math.min(2000, v)); });
+  inpInputTimeout.addEventListener('change', ()=>{ const v=+inpInputTimeout.value; if (Number.isFinite(v)) config.inputTimeoutMs = Math.max(3000, Math.min(30000, v)); });
+  inpTealMask.addEventListener('change', ()=>{ config.modal.tealMask = parseHexInput(inpTealMask, config.modal.tealMask); });
+  inpTealKey.addEventListener('change',  ()=>{ config.modal.tealKey  = parseHexInput(inpTealKey,  config.modal.tealKey);  });
+  inpGreenKey.addEventListener('change', ()=>{ config.modal.greenKey = parseHexInput(inpGreenKey, config.modal.greenKey); });
+  btnRestoreDefaults.addEventListener('click', ()=>{
+    Object.assign(config, JSON.parse(JSON.stringify(defaultConfig)));
+    syncAdvancedUI();
+  });
 
-  // Defaults
+  // Difficulty/grid
   let difficulty='expert', rows=6, cols=6;
+  function updateGridFromDifficulty(){
+    switch(difficulty){
+      case 'easy': rows=4; cols=4; break;
+      case 'medium': rows=5; cols=5; break;
+      case 'hard': case 'expert': rows=6; cols=6; break;
+      default: rows=6; cols=6;
+    }
+    elGridSize.textContent = `${cols}×${rows}`;
+  }
 
   // State
-  let stream=null, track=null, running=false, detectionActive=false, hasBoard=false;
+  let stream=null, running=false, detectionActive=false, hasBoard=false;
 
   let boardRect=null; // video coords
   let tileRects=[];
 
-  // Old engine work canvas
-  const work = document.createElement('canvas'); 
-  const wctx = work.getContext('2d', { willReadFrequently:true });
+  // New engine: VideoFrame reader + modal color
+  class FrameReader {
+    constructor(){ this.buffer = new ArrayBuffer(0); this.u32 = new Uint32Array(this.buffer); this.w=0; this.h=0; this.supported = (typeof VideoFrame !== 'undefined'); }
+    copy(video, rect){
+      if (!this.supported) throw new Error('VideoFrame not supported');
+      const frame = new VideoFrame(video);
+      if (rect.width !== this.w || rect.height !== this.h){
+        this.w = rect.width|0; this.h = rect.height|0;
+        this.buffer = new ArrayBuffer(this.w * this.h * 4);
+        this.u32 = new Uint32Array(this.buffer);
+      }
+      frame.copyTo(this.buffer, { rect, format: 'RGBX' });
+      frame.close();
+    }
+  }
+  const fr = new FrameReader();
 
-  let tileState=[], sampleOffsets=[];
-  let tileMetrics=[]; // used for debug overlays
+  function modalTileColor(u32, w, t){
+    // Sample inside tile in board-space (boardRect aligned with fr.w x fr.h)
+    const x0 = Math.max(0, (t.x - boardRect.x)|0);
+    const y0 = Math.max(0, (t.y - boardRect.y)|0);
+    const tw = Math.max(1, t.w|0), th = Math.max(1, t.h|0);
+    const insetX = (tw*0.15)|0, insetY = (th*0.15)|0;
+    const spanX = Math.max(1,(tw*0.70)|0), spanY = Math.max(1,(th*0.70)|0);
+    const N = config.modal.sampleGrid|0;
+    const hist = new Map();
+    let best = 0, bestCount = -1;
+    for (let yi=0; yi<N; yi++){
+      for (let xi=0; xi<N; xi++){
+        const px = Math.min(fr.w-1, x0 + insetX + ((xi*spanX)/(N-1))|0);
+        const py = Math.min(fr.h-1, y0 + insetY + ((yi*spanY)/(N-1))|0);
+        const c = u32[px + py * w] & config.modal.dropMask;
+        const v = (hist.get(c)||0)+1; hist.set(c, v);
+        if (v > bestCount){ best = c; bestCount = v; }
+      }
+    }
+    return { color: best, count: bestCount };
+  }
+
+  function perfClassifyTiles(){
+    // Returns { bestTealIdx, bestGreenIdx }
+    let bestTealIdx=-1, bestTealScore=-1, bestGreenIdx=-1, bestGreenScore=-1;
+    for (let i=0;i<tileRects.length;i++){
+      const t=tileRects[i];
+      const { color, count } = modalTileColor(fr.u32, fr.w, t);
+      const isTeal = ((color & config.modal.tealMask) === config.modal.tealKey);
+      const isGreen = (color === config.modal.greenKey);
+      if (isTeal && count > bestTealScore){ bestTealScore=count; bestTealIdx=i; }
+      if (isGreen && count > bestGreenScore){ bestGreenScore=count; bestGreenIdx=i; }
+    }
+    return { bestTealIdx, bestGreenIdx };
+  }
 
   // FSM
   let phase='idle';
@@ -363,31 +333,43 @@
   let inputSeq=[];
   let revealLenExpected=0;
 
-  // Timing marks
-  let warmupStartTs=0, inputStartTs=0, rearmTs=0;
-
-  // Old engine RLE tracker
-  const winnerHist = [];
-  let activeIdx = -1;
-  let activeStartTs = 0;
+  // Timing
   let lastTealTs=0;
+  let inputStartTs=0, rearmTs=0;
 
-  // New engine edge-trigger tracker
-  let perfLastActiveIdx = -1;
-
-  // FPS + adaptation
+  // FPS
   let lastFPSTs=0, framesInBucket=0, measuredFps=0;
 
-  // Wrong press flash
-  let badPressTs=0, badPressTile=-1;
-
-  // Editor + pointer
+  // Editor
   const editor = { mode:'idle', rect:null, activeHandle:null, start:{x:0,y:0}, rectStart:null, handleSize:12 };
   const pointerState = { active:false, id:-1 };
 
   // Utils
   function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
-  function luminance(r,g,b){ return 0.2126*r + 0.7152*g + 0.0722*b; }
+
+  function updateStatus(){
+    elPhase.textContent=phase;
+    elRound.textContent=String(roundIndex+1);
+    elRevealCount.textContent=String(revealSeq.length);
+    elInputCount.textContent=String(inputSeq.length);
+  }
+
+  // Build tiles from square
+  function buildTilesFromSquare(bx,by,bw,bh){
+    const stepX=bw/cols, stepY=bh/rows;
+    const gap=0.12;
+    const wTile=stepX*(1-gap), hTile=stepY*(1-gap);
+    const gx=stepX-wTile, gy=stepY-hTile;
+    const out=[]; let idx=0;
+    for (let r=0;r<rows;r++){
+      for (let c=0;c<cols;c++){
+        const x=bx + c*stepX + gx*0.5;
+        const y=by + r*stepY + gy*0.5;
+        out.push({ x,y,w:wTile,h:hTile,row:r,col:c,index:idx++ });
+      }
+    }
+    return out;
+  }
 
   // Overlay sizing
   function updateOverlayBox(){
@@ -408,515 +390,24 @@
     overlay.style.cursor = on ? 'crosshair' : 'default';
   }
 
-  // Grid + UI
-  function updateGridFromDifficulty(){
-    switch(difficulty){
-      case 'easy': rows=4; cols=4; break;
-      case 'medium': rows=5; cols=5; break;
-      case 'hard': case 'expert': rows=6; cols=6; break;
-      default: rows=6; cols=6;
-    }
-    elGridSize.textContent = `${cols}×${rows}`;
-  }
-  function updateStatus(){
-    elPhase.textContent=phase;
-    elRound.textContent=String(roundIndex+1);
-    elRevealCount.textContent=String(revealSeq.length);
-    elInputCount.textContent=String(inputSeq.length);
-  }
-  function resetDetectionState({clearBoard=true}={}){
-    detectionActive=false; btnStart.disabled=false; btnStop.disabled=true;
-    phase='idle'; roundIndex=0; revealSeq=[]; inputSeq=[]; revealLenExpected=0;
-    warmupStartTs=performance.now();
-    lastTealTs=0; badPressTs=0; badPressTile=-1;
-    winnerHist.length = 0; activeIdx = -1; activeStartTs = 0;
-    perfLastActiveIdx = -1;
-    guideHeader.style.display='none'; guideHeader.textContent='';
-    tileMetrics=[];
-    if (clearBoard){
-      boardRect=null; tileRects=[]; tileState=[]; sampleOffsets=[]; hasBoard=false;
-      btnEditBoard.disabled=true; btnDoneEdit.disabled=true; btnClearBoard.disabled=true;
-      Object.assign(editor,{mode:'idle',rect:null,activeHandle:null});
-    }
-    pointerState.active=false;
-    setOverlayPointer(false);
-    updateStatus();
-  }
-  function resetRounds(){
-    roundIndex=0; revealSeq=[]; inputSeq=[]; revealLenExpected=0;
-    phase='armed'; warmupStartTs=performance.now();
-    winnerHist.length = 0; activeIdx = -1; activeStartTs = 0; lastTealTs=0;
-    perfLastActiveIdx = -1;
-    guideHeader.style.display='none'; guideHeader.textContent='';
-    updateStatus();
+  // Draw grid helper (for live preview while drawing/editing and when board set)
+  function drawGrid(x,y,w,h,sx,sy){
+    const gx = x*sx, gy = y*sy, gw = w*sx, gh = h*sy;
+    // Outer
+    ctxOv.save();
+    ctxOv.setLineDash([6,4]); ctxOv.lineWidth=2; ctxOv.strokeStyle='rgba(88,176,255,0.95)';
+    ctxOv.strokeRect(gx, gy, gw, gh);
+    ctxOv.restore();
+    // Inner grid lines
+    ctxOv.save();
+    ctxOv.setLineDash([2,3]); ctxOv.lineWidth=1.25; ctxOv.strokeStyle='rgba(140,200,255,0.5)';
+    const stepX = gw/cols, stepY = gh/rows;
+    for (let c=1;c<cols;c++){ const xx = gx + c*stepX; ctxOv.beginPath(); ctxOv.moveTo(xx, gy); ctxOv.lineTo(xx, gy+gh); ctxOv.stroke(); }
+    for (let r=1;r<rows;r++){ const yy = gy + r*stepY; ctxOv.beginPath(); ctxOv.moveTo(gx, yy); ctxOv.lineTo(gx+gw, yy); ctxOv.stroke(); }
+    ctxOv.restore();
   }
 
-  // Build tiles
-  function buildTilesFromSquare(bx,by,bw,bh){
-    const stepX=bw/cols, stepY=bh/rows;
-    const gap=0.12;
-    const wTile=stepX*(1-gap), hTile=stepY*(1-gap);
-    const gx=stepX-wTile, gy=stepY-hTile;
-    const out=[]; let idx=0;
-    for (let r=0;r<rows;r++){
-      for (let c=0;c<cols;c++){
-        const x=bx + c*stepX + gx*0.5;
-        const y=by + r*stepY + gy*0.5;
-        out.push({ x,y,w:wTile,h:hTile,row:r,col:c,index:idx++ });
-      }
-    }
-    return out;
-  }
-
-  // Sampling layout (Old)
-  function ensureTileState(){
-    tileState = tileRects.map(()=>({
-      baseline:0, delta:0,
-      energyBuf:new Float32Array(config.energyWindow), energySum:0, eIdx:0,
-      hold:0, refractory:0, lowCount:0, belowLow:true,
-      lastHotTs:0
-    }));
-    sampleOffsets = tileRects.map((t)=>{
-      const pts=[], insetX=t.w*0.15, insetY=t.h*0.15, wSpan=t.w*0.70, hSpan=t.h*0.70;
-      for (let yi=0; yi<5; yi++){ for (let xi=0; xi<5; xi++){ pts.push([insetX+wSpan*(xi/4), insetY+hSpan*(yi/4)]); } }
-      return pts;
-    });
-  }
-
-  // Old engine color heuristics
-  function isTealRGB(r,g,b){ return g>=96 && b>=96 && g>=1.25*r && b>=1.15*r && g<=1.6*b; }
-  function isGreenRGB(r,g,b){ return g>=110 && g>=1.4*r && g>=1.25*b; }
-  function rgbToHsv(r,g,b){
-    r/=255; g/=255; b/=255;
-    const max=Math.max(r,g,b), min=Math.min(r,g,b), d=max-min;
-    let h=0;
-    if (d!==0){
-      if (max===r) h=((g-b)/d)%6;
-      else if (max===g) h=(b-r)/d+2;
-      else h=(r-g)/d+4;
-      h*=60; if (h<0) h+=360;
-    }
-    const s=max===0?0:d/max, v=max;
-    return [h,s,v];
-  }
-
-  // Old engine frame read
-  function readBoardImageData(){
-    if (!boardRect || !video.videoWidth) return null;
-    work.width=Math.max(2,Math.floor(boardRect.w)); work.height=Math.max(2,Math.floor(boardRect.h));
-    wctx.drawImage(video, boardRect.x,boardRect.y,boardRect.w,boardRect.h, 0,0, work.width,work.height);
-    return wctx.getImageData(0,0,work.width,work.height);
-  }
-  function avgTileLuminance(img,t){
-    const sx=work.width/boardRect.w, sy=work.height/boardRect.h, off=sampleOffsets[t.index];
-    let sum=0;
-    for (let i=0;i<off.length;i++){
-      const ox=off[i][0]*sx + (t.x-boardRect.x)*sx, oy=off[i][1]*sy + (t.y-boardRect.y)*sy;
-      const xi=Math.max(0,Math.min(work.width-1,ox|0)), yi=Math.max(0,Math.min(work.height-1,oy|0));
-      const idx=(yi*work.width+xi)*4; sum += luminance(img.data[idx], img.data[idx+1], img.data[idx+2]);
-    }
-    return sum/off.length;
-  }
-  function classifyTileRGBWithCounts(img,t){
-    const sx=work.width/boardRect.w, sy=work.height/boardRect.h, off=sampleOffsets[t.index];
-    const now = performance.now();
-    const useNearMouse = config.ignoreNearMouse && lastMouse.inBoard && ((now - lastMouse.ts) <= config.cursorMaskRecentMs);
-    const r2 = config.cursorMaskRadiusPx * config.cursorMaskRadiusPx;
-
-    let tealHits=0, greenHits=0;
-    for (let i=0;i<off.length;i++){
-      const ox=off[i][0]*sx + (t.x-boardRect.x)*sx;
-      const oy=off[i][1]*sy + (t.y-boardRect.y)*sy;
-
-      if (useNearMouse){
-        const dx = ox - lastMouse.xWork;
-        const dy = oy - lastMouse.yWork;
-        if ((dx*dx + dy*dy) <= r2) continue;
-      }
-
-      const xi=Math.max(0,Math.min(work.width-1,ox|0)), yi=Math.max(0,Math.min(work.height-1,oy|0));
-      const idx=(yi*work.width+xi)*4, r=img.data[idx], g=img.data[idx+1], b=img.data[idx+2];
-
-      if (config.ignoreCursor){
-        const [h,s,v]=rgbToHsv(r,g,b);
-        if (s <= config.cursorWhiteSatMax && v >= config.cursorWhiteVMin){
-          continue;
-        }
-      }
-      if (isTealRGB(r,g,b)) tealHits++;
-      if (isGreenRGB(r,g,b)) greenHits++;
-    }
-    return { tealHits, greenHits, teal: tealHits >= config.minTealHits, green: greenHits >= 3 };
-  }
-
-  function updateEnergy(tsNow,i,delta){
-    const st=tileState[i]; const v=Math.max(0, delta-config.thrLow);
-    const old=st.energyBuf[st.eIdx]; st.energyBuf[st.eIdx]=v; st.eIdx=(st.eIdx+1)%config.energyWindow; st.energySum+=v-old;
-    const thr=(config.thrHigh-config.thrLow)*config.energyScale; return st.energySum>=thr;
-  }
-
-  // Old engine winner helpers (RLE)
-  function pushWinner(ts, idx){
-    winnerHist.push({ ts, idx });
-    if (winnerHist.length > eff.winnerModeWindow) winnerHist.shift();
-  }
-  function getStableWinner(){
-    let best=-1, cnt=0;
-    const freq = new Map();
-    for (const w of winnerHist){
-      if (w.idx >= 0){ freq.set(w.idx, (freq.get(w.idx)||0)+1); }
-    }
-    for (const [i, c] of freq){ if (c > cnt){ cnt=c; best=i; } }
-    return (cnt >= Math.ceil(eff.winnerModeWindow/2)) ? best : -1;
-  }
-  function winnerPersistCount(idx){
-    let c=0;
-    for (let i=winnerHist.length-1;i>=0;i--){
-      if (winnerHist[i].idx === idx) c++; else break;
-    }
-    return c;
-  }
-  function pushStep(idx, tsNow){
-    if (idx < 0) return;
-    const st = tileState[idx];
-    const within = st && ((tsNow - st.lastHotTs) < config.dedupeMs);
-    if (within) return;
-    revealSeq.push(idx);
-    if (st) st.lastHotTs = tsNow;
-    elRevealCount.textContent = String(revealSeq.length);
-  }
-
-  // Old engine adaptive knobs
-  function applyAdaptiveKnobs(){
-    const f = measuredFps;
-    eff.winnerModeWindow = config.winnerModeWindow;
-    eff.stepPersistFrames = config.stepPersistFrames;
-    eff.minSwitchGapMs = config.minSwitchGapMs;
-    eff.minTealHits = config.minTealHits;
-    eff.energyWindow = config.energyWindow;
-
-    if (f < 10){
-      eff.winnerModeWindow = 1;
-      eff.stepPersistFrames = 1;
-      eff.minSwitchGapMs = 0;
-      eff.minTealHits = Math.max(3, Math.min(6, config.minTealHits));
-      eff.energyWindow = Math.max(3, Math.min(5, config.energyWindow));
-      lowfpsBadge.style.display='inline-flex';
-    } else if (f < 20){
-      eff.winnerModeWindow = Math.min(2, config.winnerModeWindow);
-      eff.stepPersistFrames = 1;
-      eff.minSwitchGapMs = Math.min(60, config.minSwitchGapMs);
-      eff.minTealHits = Math.max(3, Math.min(5, config.minTealHits));
-      eff.energyWindow = Math.max(4, Math.min(5, config.energyWindow));
-      lowfpsBadge.style.display='inline-flex';
-    } else {
-      lowfpsBadge.style.display='none';
-    }
-  }
-
-  // New engine: VideoFrame reader + modal color
-  class FrameReader {
-    constructor(){ this.buffer = new ArrayBuffer(0); this.u32 = new Uint32Array(this.buffer); this.w=0; this.h=0; this.supported = (typeof VideoFrame !== 'undefined'); }
-    copy(video, rect){
-      if (!this.supported) throw new Error('VideoFrame not supported');
-      const frame = new VideoFrame(video);
-      if (rect.width !== this.w || rect.height !== this.h){
-        this.w = rect.width|0; this.h = rect.height|0;
-        this.buffer = new ArrayBuffer(this.w * this.h * 4);
-        this.u32 = new Uint32Array(this.buffer);
-      }
-      frame.copyTo(this.buffer, { rect, format: 'RGBX' });
-      frame.close();
-    }
-  }
-  const fr = new FrameReader();
-
-  function modalTileColor(u32, w, t){
-    const x0 = Math.max(0, (t.x - boardRect.x)|0);
-    const y0 = Math.max(0, (t.y - boardRect.y)|0);
-    const tw = Math.max(1, t.w|0), th = Math.max(1, t.h|0);
-    const insetX = (tw*0.15)|0, insetY = (th*0.15)|0;
-    const spanX = Math.max(1,(tw*0.70)|0), spanY = Math.max(1,(th*0.70)|0);
-    const N = config.modal.sampleGrid|0;
-    const hist = new Map();
-    let best = 0, bestCount = -1;
-    for (let yi=0; yi<N; yi++){
-      for (let xi=0; xi<N; xi++){
-        const px = Math.min(fr.w-1, x0 + insetX + ((xi*spanX)/(N-1))|0);
-        const py = Math.min(fr.h-1, y0 + insetY + ((yi*spanY)/(N-1))|0);
-        const c = u32[px + py * w] & config.modal.dropMask;
-        const v = (hist.get(c)||0)+1; hist.set(c, v);
-        if (v > bestCount){ best = c; bestCount = v; }
-      }
-    }
-    return { color: best, count: bestCount };
-  }
-  function perfClassifyTiles(){
-    let bestTealIdx=-1, bestTealScore=-1, bestGreenIdx=-1, bestGreenScore=-1;
-    for (let i=0;i<tileRects.length;i++){
-      const t=tileRects[i];
-      const { color, count } = modalTileColor(fr.u32, fr.w, t);
-      const isTeal = ((color & config.modal.tealMask) === config.modal.tealKey);
-      const isGreen = (color === config.modal.greenKey);
-      if (isTeal && count > bestTealScore){ bestTealScore=count; bestTealIdx=i; }
-      if (isGreen && count > bestGreenScore){ bestGreenScore=count; bestGreenIdx=i; }
-      if (debug.enabled){
-        tileMetrics[i] = { avg: 0, base:0, delta:0, tealHits: isTeal?count:0, greenHits: isGreen?count:0, teal:isTeal, green:isGreen };
-      }
-    }
-    return { bestTealIdx, bestTealScore, bestGreenIdx, bestGreenScore };
-  }
-
-  // Engine switch button
-  btnMode.addEventListener('click', ()=>{
-    if (!perfModeEnabled){
-      // switching Old -> New
-      if (!fr.supported){
-        alert('New mode requires VideoFrame (Chromium/WebCodecs). Staying on Old.');
-        return;
-      }
-      perfModeEnabled = true;
-    } else {
-      perfModeEnabled = false;
-    }
-    console.log('[Zen Solver] Engine mode:', perfModeEnabled ? 'New' : 'Old');
-    updateModeUI();
-  });
-
-  // Frame processing (dual-path)
-  function processFrame(tsNow){
-    if (!hasBoard || !detectionActive) return;
-
-    const useNew = perfModeEnabled && fr.supported;
-
-    if (!useNew){
-      // OLD ENGINE
-      applyAdaptiveKnobs();
-
-      const img = readBoardImageData(); if (!img) return;
-      const inWarm = (tsNow - warmupStartTs) < config.warmupMs;
-      if (debug.enabled){ tileMetrics.length = tileRects.length; }
-
-      let bestTealIdx = -1, bestTealScore = -1;
-      let bestGreenIdx = -1, bestGreenScore = -1;
-
-      for (let i=0;i<tileRects.length;i++){
-        const t=tileRects[i], st=tileState[i];
-        const cls = classifyTileRGBWithCounts(img,t);
-        const avg=avgTileLuminance(img,t);
-        st.baseline = st.baseline*(1-config.emaAlpha) + avg*config.emaAlpha;
-        const delta = st.delta = avg - st.baseline;
-
-        if (inWarm){
-          st.belowLow = delta<=config.thrLow;
-          st.hold=(delta>=config.thrHigh)?Math.min(config.holdFrames, st.hold+1):0;
-          if (debug.enabled) tileMetrics[i] = {avg, base:st.baseline, delta, tealHits:cls.tealHits, greenHits:cls.greenHits, teal:cls.teal, green:cls.green};
-          continue;
-        }
-
-        if (delta<=config.thrLow){ st.belowLow=true; st.lowCount=Math.min(255, st.lowCount+1); st.refractory=0; }
-        else { st.belowLow=false; st.lowCount=0; if (st.refractory>0) st.refractory--; }
-
-        st.hold=(delta>=config.thrHigh)?Math.min(config.holdFrames, st.hold+1):0;
-        const byHold=(st.hold>=config.holdFrames), byEnergy=updateEnergy(tsNow,i,delta);
-        const canRepeatBypass = st.lowCount >= config.belowLowFramesToBypass;
-        const canTrigger = (st.refractory===0) || canRepeatBypass;
-
-        if (canTrigger && (byHold||byEnergy)){
-          if ((phase==='armed' || phase==='reveal') && cls.teal){
-            const score = cls.tealHits*10 + Math.max(0, delta);
-            if (score > bestTealScore){ bestTealScore=score; bestTealIdx=i; }
-          }else if (phase==='waiting-input' && cls.green){
-            const score = cls.greenHits*10 + Math.max(0, delta);
-            if (score > bestGreenScore){ bestGreenScore=score; bestGreenIdx=i; }
-          }
-        }
-
-        if (debug.enabled) tileMetrics[i] = {avg, base:st.baseline, delta, tealHits:cls.tealHits, greenHits:cls.greenHits, teal:cls.teal, green:cls.green};
-      }
-
-      if (bestTealIdx >= 0) tileState[bestTealIdx].refractory = config.refractoryFrames;
-      if (bestGreenIdx >= 0) tileState[bestGreenIdx].refractory = config.refractoryFrames;
-
-      if (phase==='armed' || phase==='reveal') pushWinner(tsNow, bestTealIdx); else pushWinner(tsNow, -1);
-
-      switch(phase){
-        case 'idle': break;
-
-        case 'armed': {
-          const stable = getStableWinner();
-          if (!inWarm && config.requireColorToStartReveal && stable >= 0){
-            phase='reveal';
-            revealSeq=[]; inputSeq=[];
-            activeIdx = -1; activeStartTs = 0;
-            lastTealTs = tsNow;
-            console.log('[Zen Solver] OLD: reveal start');
-          }
-          break;
-        }
-
-        case 'reveal': {
-          const stable = getStableWinner();
-
-          if (stable >= 0){
-            lastTealTs = tsNow;
-            if (activeIdx < 0){
-              if (winnerPersistCount(stable) >= eff.stepPersistFrames){
-                activeIdx = stable; activeStartTs = tsNow;
-              }
-            } else if (stable !== activeIdx){
-              const persisted = winnerPersistCount(stable) >= eff.stepPersistFrames;
-              const dwelt = (tsNow - activeStartTs) >= eff.minSwitchGapMs;
-              if (persisted && dwelt){
-                pushStep(activeIdx, tsNow);
-                activeIdx = stable; activeStartTs = tsNow;
-              }
-            }
-          }
-
-          if ((tsNow - lastTealTs) >= config.revealEndSilenceMs){
-            if (activeIdx >= 0){ pushStep(activeIdx, tsNow); activeIdx = -1; }
-            if (revealSeq.length > 0){
-              phase='waiting-input';
-              inputSeq=[]; inputStartTs=tsNow;
-              revealLenExpected = revealSeq.length;
-              guideHeader.style.display='block';
-              guideHeader.textContent = `Step 1 / ${revealLenExpected}`;
-              console.log('[Zen Solver] OLD: steps', revealSeq.map(i=>i));
-            } else {
-              phase='rearming'; rearmTs=tsNow;
-            }
-          }
-          break;
-        }
-
-        case 'waiting-input': {
-          const expected = revealSeq[inputSeq.length] ?? -1;
-          const inputElapsed = tsNow - inputStartTs;
-
-          if (bestGreenIdx >= 0){
-            if (bestGreenIdx === expected){
-              const within = (tsNow - tileState[expected].lastHotTs) < config.dedupeMs;
-              if (!within){
-                inputSeq.push(expected);
-                tileState[expected].lastHotTs = tsNow;
-                elInputCount.textContent=String(inputSeq.length);
-              }
-            } else {
-              badPressTile = bestGreenIdx;
-              badPressTs = tsNow;
-            }
-          }
-
-          if (inputSeq.length >= revealLenExpected && revealLenExpected>0){
-            roundIndex += 1;
-            phase='rearming'; rearmTs=tsNow;
-            revealSeq=[]; inputSeq=[]; revealLenExpected=0;
-            guideHeader.style.display='none';
-          } else if (inputElapsed >= config.inputTimeoutMs){
-            phase='rearming'; rearmTs=tsNow; revealSeq=[]; inputSeq=[]; revealLenExpected=0; guideHeader.style.display='none';
-          }
-          break;
-        }
-
-        case 'rearming':
-          if (tsNow - rearmTs >= config.rearmDelayMs){
-            phase='armed'; warmupStartTs=tsNow;
-            winnerHist.length = 0;
-            activeIdx = -1; activeStartTs = 0;
-          }
-          break;
-      }
-      updateStatus();
-      return;
-    }
-
-    // NEW ENGINE
-    if (!boardRect || !video.videoWidth) return;
-    const rect = { x: boardRect.x|0, y: boardRect.y|0, width: boardRect.w|0, height: boardRect.h|0 };
-    try { fr.copy(video, rect); } catch(_){ return; }
-
-    if (debug.enabled){ tileMetrics.length = tileRects.length; }
-
-    const { bestTealIdx, bestTealScore, bestGreenIdx, bestGreenScore } = perfClassifyTiles();
-
-    switch(phase){
-      case 'idle': break;
-      case 'armed': {
-        if (bestTealIdx >= 0){
-          phase='reveal';
-          revealSeq=[]; inputSeq=[];
-          perfLastActiveIdx = bestTealIdx;
-          lastTealTs = tsNow;
-          console.log('[Zen Solver] NEW: reveal start');
-        }
-        break;
-      }
-      case 'reveal': {
-        if (bestTealIdx >= 0){
-          lastTealTs = tsNow;
-          if (perfLastActiveIdx !== bestTealIdx){
-            if (perfLastActiveIdx >= 0) {
-              revealSeq.push(perfLastActiveIdx);
-              elRevealCount.textContent=String(revealSeq.length);
-            }
-            perfLastActiveIdx = bestTealIdx;
-          }
-        }
-        if ((tsNow - lastTealTs) >= config.revealEndSilenceMs){
-          if (perfLastActiveIdx >= 0){
-            revealSeq.push(perfLastActiveIdx);
-            elRevealCount.textContent=String(revealSeq.length);
-            perfLastActiveIdx = -1;
-          }
-          if (revealSeq.length > 0){
-            phase='waiting-input';
-            inputSeq=[]; inputStartTs=tsNow;
-            revealLenExpected = revealSeq.length;
-            guideHeader.style.display='block';
-            guideHeader.textContent = `Step 1 / ${revealLenExpected}`;
-            console.log('[Zen Solver] NEW: steps', revealSeq.map(i=>i));
-          } else {
-            phase='rearming'; rearmTs=tsNow;
-          }
-        }
-        break;
-      }
-      case 'waiting-input': {
-        const expected = revealSeq[inputSeq.length] ?? -1;
-        const inputElapsed = tsNow - inputStartTs;
-        if (bestGreenIdx >= 0){
-          if (bestGreenIdx === expected){
-            if (inputSeq[inputSeq.length-1] !== expected){
-              inputSeq.push(expected);
-              elInputCount.textContent=String(inputSeq.length);
-            }
-          } else {
-            badPressTile = bestGreenIdx;
-            badPressTs = tsNow;
-          }
-        }
-        if (inputSeq.length >= revealLenExpected && revealLenExpected>0){
-          roundIndex += 1;
-          phase='rearming'; rearmTs=tsNow;
-          revealSeq=[]; inputSeq=[]; revealLenExpected=0;
-          guideHeader.style.display='none';
-        } else if (inputElapsed >= config.inputTimeoutMs){
-          phase='rearming'; rearmTs=tsNow; revealSeq=[]; inputSeq=[]; revealLenExpected=0; guideHeader.style.display='none';
-        }
-        break;
-      }
-      case 'rearming':
-        if (tsNow - rearmTs >= config.rearmDelayMs){
-          phase='armed'; warmupStartTs=tsNow;
-          perfLastActiveIdx = -1;
-        }
-        break;
-    }
-    updateStatus();
-  }
-
-  // Overlay drawing
+  // Main overlay draw
   function drawOverlay(){
     updateOverlayBox();
 
@@ -924,65 +415,12 @@
     ctxOv.clearRect(0,0,vw,vh);
     const sx = vw/(video.videoWidth||1), sy = vh/(video.videoHeight||1);
 
+    // When board set, always show the grid on top (calm blue lines, no red flashes)
     if (boardRect && video.videoWidth){
-      // Board
-      ctxOv.save();
-      ctxOv.strokeStyle='rgba(88,176,255,0.95)'; ctxOv.setLineDash([6,4]); ctxOv.lineWidth=2;
-      ctxOv.strokeRect(boardRect.x*sx, boardRect.y*sy, boardRect.w*sx, boardRect.h*sy);
-      ctxOv.restore();
-
-      // Tiles
-      ctxOv.save();
-      ctxOv.strokeStyle='rgba(140,200,255,0.28)'; ctxOv.lineWidth=1;
-      for (const t of tileRects){ ctxOv.strokeRect(t.x*sx, t.y*sy, t.w*sx, t.h*sy); }
-      ctxOv.restore();
-
-      // Debug overlay (optional)
-      if (debug.enabled && tileMetrics.length===tileRects.length){
-        if (debug.overlayHeatmap){
-          for (let i=0;i<tileRects.length;i++){
-            const t=tileRects[i], m=tileMetrics[i]||{delta:0};
-            const a = clamp(Math.abs(m.delta||0)/12, 0, 1);
-            const pos = (m.delta||0)>=0;
-            const r = pos ? Math.round(255*a) : 0;
-            const g = pos ? Math.round(180*a) : Math.round(120*a);
-            const b = pos ? 0 : Math.round(255*a);
-            ctxOv.fillStyle = `rgba(${r},${g},${b},${0.28+0.22*a})`;
-            ctxOv.fillRect(t.x*sx, t.y*sy, t.w*sx, t.h*sy);
-          }
-        }
-        if (debug.overlaySamples){
-          ctxOv.save();
-          ctxOv.fillStyle='rgba(255,255,255,0.85)';
-          for (let i=0;i<tileRects.length;i++){
-            const t=tileRects[i];
-            const offs=sampleOffsets[i]||[];
-            for (const p of offs){
-              const px=(t.x+p[0])*sx, py=(t.y+p[1])*sy;
-              ctxOv.fillRect(px-1, py-1, 2, 2);
-            }
-          }
-          ctxOv.restore();
-        }
-        if (debug.overlayLabels){
-          ctxOv.save();
-          ctxOv.font='600 10px system-ui, -apple-system, Segoe UI, Roboto';
-          ctxOv.textAlign='left'; ctxOv.textBaseline='top';
-          for (let i=0;i<tileRects.length;i++){
-            const t=tileRects[i], m=tileMetrics[i]||{};
-            const x=t.x*sx+3, y=t.y*sy+3;
-            const lbl = `Δ:${(m.delta??0).toFixed?.(1) ?? '0.0'} T:${m.tealHits||0} G:${m.greenHits||0}`;
-            ctxOv.fillStyle='rgba(10,18,32,0.7)';
-            ctxOv.fillRect(x-2,y-2, ctxOv.measureText(lbl).width+6, 14);
-            ctxOv.fillStyle='#cfe6ff';
-            ctxOv.fillText(lbl, x, y);
-          }
-          ctxOv.restore();
-        }
-      }
+      drawGrid(boardRect.x, boardRect.y, boardRect.w, boardRect.h, sx, sy);
     }
 
-    // Step-by-step guide
+    // Step guide: only show next tile (calm green ring), never flash whole board red
     if (phase==='waiting-input' && revealSeq.length>0 && boardRect){
       const k = inputSeq.length; const N = revealLenExpected || revealSeq.length;
       guideHeader.style.display='block';
@@ -996,18 +434,8 @@
         if (t){
           const x=t.x*sx, y=t.y*sy, w=t.w*sx, h=t.h*sy;
           ctxOv.lineWidth = 3 + 2*pulse;
-          ctxOv.strokeStyle = `rgba(34,197,94,${0.55 + 0.35*pulse})`;
-          ctxOv.shadowColor = 'rgba(34,197,94,0.5)'; ctxOv.shadowBlur = 12*pulse;
-          ctxOv.strokeRect(x,y,w,h);
-        }
-      }
-      if (badPressTile>=0 && (now - badPressTs) < 300){
-        const t = tileRects[badPressTile];
-        if (t){
-          const x=t.x*sx, y=t.y*sy, w=t.w*sx, h=t.h*sy;
-          ctxOv.lineWidth = 4;
-          ctxOv.strokeStyle = 'rgba(239,68,68,0.9)';
-          ctxOv.shadowColor = 'rgba(239,68,68,0.6)'; ctxOv.shadowBlur = 10;
+          ctxOv.strokeStyle = `rgba(34,197,94,${0.55 + 0.35*pulse})`; // green
+          ctxOv.shadowColor = 'rgba(34,197,94,0.35)'; ctxOv.shadowBlur = 10*pulse;
           ctxOv.strokeRect(x,y,w,h);
         }
       }
@@ -1015,91 +443,118 @@
       guideHeader.style.display='none';
     }
 
-    // Editor visuals
-    if (editor.mode==='draw' && editor.rect){
-      const r=editor.rect, vw=overlay.width, vh=overlay.height;
-      const sq=squareFromRectCentered(r,vw,vh);
-      ctxOv.save();
-      ctxOv.setLineDash([8,6]); ctxOv.lineWidth=2; ctxOv.strokeStyle='rgba(88,176,255,0.95)';
-      ctxOv.fillStyle='rgba(88,176,255,0.14)'; ctxOv.fillRect(sq.x,sq.y,sq.w,sq.h); ctxOv.strokeRect(sq.x,sq.y,sq.w,sq.h);
-      ctxOv.restore();
-    }
-    if (editor.mode==='edit' && editor.rect){
-      const r=editor.rect;
-      ctxOv.save();
-      ctxOv.setLineDash([8,6]); ctxOv.lineWidth=2; ctxOv.strokeStyle='rgba(88,176,255,0.95)';
-      ctxOv.fillStyle='rgba(88,176,255,0.10)'; ctxOv.fillRect(r.x,r.y,r.w,r.h); ctxOv.strokeRect(r.x,r.y,r.w,r.h);
-      ctxOv.restore();
-      const hs=editor.handleSize;
-      for (const h of getHandleRects(r,hs)){
-        ctxOv.fillStyle='rgba(88,176,255,0.95)'; ctxOv.fillRect(h.x,h.y,h.w,h.h);
-        ctxOv.strokeStyle='#0b1220'; ctxOv.lineWidth=1.5; ctxOv.strokeRect(h.x,h.y,h.w,h.h);
+    // Live board selection/edit preview (with grid visible as you draw)
+    if ((editor.mode==='draw' || editor.mode==='edit') && editor.rect){
+      const r = editor.rect;
+      // In draw mode, enforce square centered from drag; in edit mode, draw current rect as-is
+      let sq = r;
+      if (editor.mode==='draw'){
+        sq = squareFromRectCentered(r, vw, vh);
+      }
+      // Draw grid inside the provisional square
+      const v2x = (video.videoWidth||1)/vw, v2y = (video.videoHeight||1)/vh;
+      drawGrid(sq.x*v2x, sq.y*v2y, sq.w*v2x, sq.h*v2y, sx, sy); // convert to video coords then back to overlay scale for consistent lines
+
+      // Edit handles (only in edit)
+      if (editor.mode==='edit'){
+        const hs=editor.handleSize;
+        for (const h of getHandleRects(sq,hs)){
+          ctxOv.fillStyle='rgba(88,176,255,0.95)'; ctxOv.fillRect(h.x,h.y,h.w,h.h);
+          ctxOv.strokeStyle='#0b1220'; ctxOv.lineWidth=1.5; ctxOv.strokeRect(h.x,h.y,h.w,h.h);
+        }
       }
     }
   }
 
-  // Debug viewer
-  function drawDebugViewer(){
-    if (!debug.enabled || !hasBoard || tileMetrics.length!==tileRects.length) {
-      ctxDbg.fillStyle='#0b1220'; ctxDbg.fillRect(0,0,debugView.width,debugView.height);
-      if (hasBoard && work.width>0 && debug.view==='raw') {
-        ctxDbg.drawImage(work, 0,0, debugView.width, debugView.height);
-      }
-      return;
-    }
-    ctxDbg.fillStyle='#0b1220'; ctxDbg.fillRect(0,0,debugView.width,debugView.height);
+  // Video frame loop: New engine only
+  function processFrame(tsNow){
+    if (!hasBoard || !detectionActive) return;
+    if (!fr.supported) return;
 
-    if (debug.view==='raw'){
-      if (work.width>0) ctxDbg.drawImage(work, 0,0,debugView.width,debugView.height);
-    } else {
-      ctxDbg.globalAlpha=0.25;
-      if (work.width>0) ctxDbg.drawImage(work, 0,0,debugView.width,debugView.height);
-      ctxDbg.globalAlpha=1;
-    }
+    const rect = { x: boardRect.x|0, y: boardRect.y|0, width: boardRect.w|0, height: boardRect.h|0 };
+    try { fr.copy(video, rect); } catch(_){ return; }
 
-    const sx = (boardRect ? debugView.width/boardRect.w : 1);
-    const sy = (boardRect ? debugView.height/boardRect.h : 1);
+    const { bestTealIdx, bestGreenIdx } = perfClassifyTiles();
 
-    for (let i=0;i<tileRects.length;i++){
-      const t=tileRects[i], m=tileMetrics[i]||{delta:0,avg:0,base:0,tealHits:0,greenHits:0};
-      const x=(t.x-boardRect.x)*sx, y=(t.y-boardRect.y)*sy, w=t.w*sx, h=t.h*sy;
+    switch(phase){
+      case 'idle': break;
 
-      if (debug.view==='grayscale'){
-        const L = clamp(Math.round(m.avg), 0, 255);
-        ctxDbg.fillStyle = `rgb(${L},${L},${L})`;
-        ctxDbg.fillRect(x,y,w,h);
-      } else if (debug.view==='delta'){
-        const a = clamp(Math.abs(m.delta)/12, 0, 1);
-        const pos = m.delta>=0;
-        const r = pos ? Math.round(255*a) : 0;
-        const g = pos ? Math.round(180*a) : Math.round(120*a);
-        const b = pos ? 0 : Math.round(255*a);
-        ctxDbg.fillStyle = `rgba(${r},${g},${b},${0.55})`;
-        ctxDbg.fillRect(x,y,w,h);
-      } else if (debug.view==='teal'){
-        const ratio = clamp((m.tealHits||0)/25, 0, 1);
-        ctxDbg.fillStyle = `rgba(45,212,212,${0.15 + 0.6*ratio})`;
-        ctxDbg.fillRect(x,y,w,h);
-      } else if (debug.view==='green'){
-        const ratio = clamp((m.greenHits||0)/25, 0, 1);
-        ctxDbg.fillStyle = `rgba(34,197,94,${0.15 + 0.6*ratio})`;
-        ctxDbg.fillRect(x,y,w,h);
+      case 'armed': {
+        if (bestTealIdx >= 0){
+          phase='reveal';
+          revealSeq=[]; inputSeq=[]; revealLenExpected=0;
+          lastTealTs = tsNow;
+        }
+        break;
       }
 
-      ctxDbg.strokeStyle = 'rgba(140,200,255,0.35)';
-      ctxDbg.lineWidth = 1;
-      ctxDbg.strokeRect(x,y,w,h);
-
-      if (debug.overlayLabels){
-        ctxDbg.font='600 10px system-ui, -apple-system, Segoe UI, Roboto';
-        ctxDbg.fillStyle='#cfe6ff'; ctxDbg.textAlign='left'; ctxDbg.textBaseline='top';
-        const lbl = `Δ:${m.delta.toFixed?.(1) ?? '0.0'} T:${m.tealHits||0} G:${m.greenHits||0}`;
-        ctxDbg.fillText(lbl, x+3, y+2);
+      case 'reveal': {
+        // Record on change-edge: push last active tile when a new tile appears
+        // We track last item implicitly as last element of revealSeq
+        if (bestTealIdx >= 0){
+          lastTealTs = tsNow;
+          const last = revealSeq[revealSeq.length-1];
+          if (last == null || last !== bestTealIdx){
+            revealSeq.push(bestTealIdx);
+            elRevealCount.textContent=String(revealSeq.length);
+          }
+        }
+        // End-of-reveal silence
+        if ((tsNow - lastTealTs) >= config.revealEndSilenceMs){
+          if (revealSeq.length > 0){
+            phase='waiting-input';
+            inputSeq=[]; inputStartTs=tsNow;
+            revealLenExpected = revealSeq.length;
+            guideHeader.style.display='block';
+            guideHeader.textContent = `Step 1 / ${revealLenExpected}`;
+          } else {
+            phase='rearming'; rearmTs=tsNow;
+          }
+        }
+        break;
       }
+
+      case 'waiting-input': {
+        const expected = revealSeq[inputSeq.length] ?? -1;
+        const inputElapsed = tsNow - inputStartTs;
+
+        if (bestGreenIdx >= 0){
+          if (bestGreenIdx === expected){
+            if (inputSeq[inputSeq.length-1] !== expected){
+              inputSeq.push(expected);
+              elInputCount.textContent=String(inputSeq.length);
+            }
+          }
+          // No red flash or stress indicators on mismatch by design
+        }
+
+        if (inputSeq.length >= revealLenExpected && revealLenExpected>0){
+          roundIndex += 1;
+          phase='rearming'; rearmTs=tsNow;
+          revealSeq=[]; inputSeq=[]; revealLenExpected=0;
+          guideHeader.style.display='none';
+        } else if (inputElapsed >= config.inputTimeoutMs){
+          phase='rearming'; rearmTs=tsNow; revealSeq=[]; inputSeq=[]; revealLenExpected=0; guideHeader.style.display='none';
+        }
+        break;
+      }
+
+      case 'rearming':
+        if (tsNow - rearmTs >= config.rearmDelayMs){
+          phase='armed';
+        }
+        break;
     }
+
+    updateStatus();
   }
 
-  // Editor helpers + robust pointer handlers
+  // Helper: square geometry and edit handles
+  function squareFromRectCentered(r,maxW,maxH){
+    const cx=r.x+r.w/2, cy=r.y+r.h/2, side=Math.min(Math.max(r.w,r.h), Math.min(maxW,maxH));
+    let x=cx-side/2, y=cy-side/2; x=clamp(x,0,maxW-side); y=clamp(y,0,maxH-side);
+    return {x,y,w:side,h:side};
+  }
   function getHandleRects(r,hs){
     return [
       {name:'nw', x:r.x-hs/2, y:r.y-hs/2, w:hs, h:hs},
@@ -1115,11 +570,6 @@
     const x=clamp(Math.min(x0,x1),0,maxW), y=clamp(Math.min(y0,y1),0,maxH);
     const w=clamp(Math.abs(x1-x0),0,maxW-x), h=clamp(Math.abs(y1-y0),0,maxH-y);
     return {x,y,w,h};
-  }
-  function squareFromRectCentered(r,maxW,maxH){
-    const cx=r.x+r.w/2, cy=r.y+r.h/2, side=Math.min(Math.max(r.w,r.h), Math.min(maxW,maxH));
-    let x=cx-side/2, y=cy-side/2; x=clamp(x,0,maxW-side); y=clamp(y,0,maxH-side);
-    return {x,y,w:side,h:side};
   }
   function squareResizeFromCorner(startRect, handle, dx, dy, maxW, maxH){
     const minSide=20; let side=startRect.w, x=startRect.x, y=startRect.y;
@@ -1139,6 +589,8 @@
     const cy = (e.clientY != null) ? e.clientY : (e.touches && e.touches[0]?.clientY) || 0;
     return { x: cx - cr.left, y: cy - cr.top };
   }
+
+  // Overlay pointer handlers (robust, with mouse fallback)
   function onOverlayPointerDown(e){
     if (editor.mode === 'idle') return;
     e.preventDefault();
@@ -1195,72 +647,92 @@
   overlay.addEventListener('pointermove', onOverlayPointerMove, { passive:false });
   overlay.addEventListener('pointerup', onOverlayPointerUp, { passive:true });
   overlay.addEventListener('pointercancel', onOverlayPointerUp, { passive:true });
-
   overlay.addEventListener('mousedown', (e)=>{ if (!('pointerId' in e)) onOverlayPointerDown(e); }, { passive:false });
   window.addEventListener('mousemove', (e)=>{ if (pointerState.active && !('pointerId' in e)) onOverlayPointerMove(e); }, { passive:false });
   window.addEventListener('mouseup',   (e)=>{ if (pointerState.active && !('pointerId' in e)) onOverlayPointerUp(e); },   { passive:true });
 
-  // Timing panel
-  function buildTimingPanel(){
-    timingGrid.innerHTML='';
-    const fields = [
-      {key:'revealEndSilenceMs', label:'Reveal End Silence (ms)', step:25, min:300, max:2000},
-      {key:'winnerModeWindow', label:'(Old) Winner Mode Window (frames)', step:1, min:1, max:9},
-      {key:'stepPersistFrames', label:'(Old) Step Persist (frames)', step:1, min:1, max:6},
-      {key:'minSwitchGapMs', label:'(Old) Min Switch Gap (ms)', step:5, min:0, max:200},
-      {key:'minTealHits', label:'(Old) Min Teal Hits (0–25)', step:1, min:1, max:25},
-      {key:'dedupeMs', label:'(Old) Pulse Dedupe (ms)', step:10, min:60, max:600},
-      {key:'belowLowFramesToBypass', label:'(Old) Below-Low Frames to Repeat', step:1, min:0, max:12},
-      {key:'holdFrames', label:'(Old) Hold Frames', step:1, min:0, max:8},
-      {key:'refractoryFrames', label:'(Old) Refractory Frames', step:1, min:0, max:20},
-      {key:'inputTimeoutMs', label:'Input Timeout (ms)', step:250, min:3000, max:30000},
-      {key:'rearmDelayMs', label:'Rearm Delay (ms)', step:10, min:30, max:500},
-    ];
-    for (const f of fields){
-      const wrap=document.createElement('div');
-      const lab=document.createElement('label'); lab.textContent=f.label; lab.htmlFor=`tim_${f.key}`;
-      const inp=document.createElement('input');
-      inp.type='number'; inp.id=`tim_${f.key}`; inp.value=String(config[f.key]);
-      if (f.step!=null) inp.step=String(f.step);
-      if (f.min!=null) inp.min=String(f.min);
-      if (f.max!=null) inp.max=String(f.max);
-      inp.addEventListener('change', ()=>{
-        const v=Number(inp.value); if (!Number.isFinite(v)) return;
-        config[f.key] = (['holdFrames','refractoryFrames','belowLowFramesToBypass','winnerModeWindow','stepPersistFrames','minTealHits'].includes(f.key)) ? Math.round(v) : v;
-      });
-      wrap.appendChild(lab); wrap.appendChild(inp);
-      timingGrid.appendChild(wrap);
-    }
+  // Video loops (FPS + processing)
+  function uiLoop(){ if (!running) return; drawOverlay(); requestAnimationFrame(uiLoop); }
+  function videoLoopVFC(now){
+    if (!running) return;
+    framesInBucket++; if (now-lastFPSTs>=1000){ measuredFps=framesInBucket; elFPS.textContent=String(framesInBucket); framesInBucket=0; lastFPSTs=now; }
+    if (detectionActive){ processFrame(now); }
+    video.requestVideoFrameCallback(videoLoopVFC);
   }
-
-  // Resize hooks
-  window.addEventListener('resize', updateOverlayBox);
-  video.addEventListener('loadedmetadata', updateOverlayBox);
-  video.addEventListener('play', updateOverlayBox);
+  function videoLoopRaf(){
+    if (!running) return;
+    const tsNow=performance.now();
+    framesInBucket++; if (tsNow-lastFPSTs>=1000){ measuredFps=framesInBucket; elFPS.textContent=String(framesInBucket); framesInBucket=0; lastFPSTs=tsNow; }
+    if (detectionActive){ processFrame(tsNow); }
+    requestAnimationFrame(videoLoopRaf);
+  }
+  function startLoops(){
+    lastFPSTs=performance.now(); framesInBucket=0;
+    requestAnimationFrame(uiLoop);
+    if (typeof video.requestVideoFrameCallback==='function'){ video.requestVideoFrameCallback(videoLoopVFC); }
+    else { requestAnimationFrame(videoLoopRaf); }
+  }
 
   // Capture
   async function startCapture(){
     try{
-      stream = await navigator.mediaDevices.getDisplayMedia({
+      const streamLocal = await navigator.mediaDevices.getDisplayMedia({
         video:{ displaySurface:'window', frameRate:{ideal:60,max:60}, cursor:'never' }, audio:false
       });
-      video.srcObject = stream;
-      track = stream.getVideoTracks()[0];
+      video.srcObject = streamLocal;
+      const track = streamLocal.getVideoTracks()[0];
       try{ await track.applyConstraints({ frameRate:{ideal:60,max:60} }); }catch(_){}
       try{ if ('contentHint' in track) track.contentHint='motion'; }catch(_){}
+      stream = streamLocal;
       btnCapture.disabled=true; btnStopCapture.disabled=false;
+      btnSetBoard.disabled=false;
       running=true; startLoops();
     }catch(e){ console.error(e); alert('Screen/window capture was not granted.'); }
   }
   function stopCapture(){
     if (stream){ stream.getTracks().forEach(t=>t.stop()); }
-    stream=null; track=null; video.srcObject=null; running=false;
+    stream=null; video.srcObject=null; running=false;
     btnCapture.disabled=false; btnStopCapture.disabled=true;
+    btnSetBoard.disabled=true;
+    resetDetectionState({clearBoard:true});
+    drawOverlay();
+  }
+
+  // Detection state resets
+  function resetDetectionState({clearBoard=true}={}){
+    detectionActive=false; btnStart.disabled=!hasBoard; btnStop.disabled=true; btnResetRounds.disabled=true;
+    phase='idle'; roundIndex=0; revealSeq=[]; inputSeq=[]; revealLenExpected=0;
+    lastTealTs=0; inputStartTs=0; rearmTs=0;
+    guideHeader.style.display='none'; guideHeader.textContent='';
+    if (clearBoard){
+      boardRect=null; tileRects=[]; hasBoard=false;
+      btnEditBoard.disabled=true; btnDoneEdit.disabled=true; btnClearBoard.disabled=true;
+      Object.assign(editor,{mode:'idle',rect:null,activeHandle:null});
+      setOverlayPointer(false);
+    }
+    updateStatus();
+  }
+  function resetRounds(){
+    roundIndex=0; revealSeq=[]; inputSeq=[]; revealLenExpected=0;
+    phase='armed';
+    guideHeader.style.display='none'; guideHeader.textContent='';
+    updateStatus();
+  }
+
+  // Commit board rect -> tiles
+  function commitEditorRectToBoard(){
+    if (!editor.rect || !video.videoWidth) return;
+    const vw=overlay.width, vh=overlay.height, sx=(video.videoWidth||1)/vw, sy=(video.videoHeight||1)/vh;
+    const r=editor.rect;
+    boardRect={ x:r.x*sx, y:r.y*sy, w:r.w*sx, h:r.h*sy };
+    tileRects = buildTilesFromSquare(boardRect.x,boardRect.y,boardRect.w,boardRect.h);
+    hasBoard=true;
+    btnEditBoard.disabled=false; btnClearBoard.disabled=false; btnStart.disabled=false; btnResetRounds.disabled=false;
   }
 
   // Events
   btnCapture.addEventListener('click', startCapture);
-  btnStopCapture.addEventListener('click', ()=>{ stopCapture(); resetDetectionState({clearBoard:true}); drawOverlay(); });
+  btnStopCapture.addEventListener('click', stopCapture);
 
   btnSetBoard.addEventListener('click', ()=>{
     if (!video.videoWidth){ alert('Start capture first.'); return; }
@@ -1291,91 +763,44 @@
       setOverlayPointer(false);
       btnDoneEdit.disabled=true;
       drawOverlay();
+    } else if (editor.mode==='draw' && editor.rect){
+      // If user clicks Done while drawing, finalize current square
+      editor.rect = squareFromRectCentered(editor.rect, overlay.width, overlay.height);
+      commitEditorRectToBoard();
+      editor.mode='idle';
+      setOverlayPointer(false);
+      btnDoneEdit.disabled=true;
+      drawOverlay();
     }
   });
   btnClearBoard.addEventListener('click', ()=>{ resetDetectionState({clearBoard:true}); drawOverlay(); });
 
-  btnCalibrate.addEventListener('click', ()=>{ if (!hasBoard){ alert('Set the board first.'); return; } calibrateBaselines(); updateStatus(); });
-
   btnStart.addEventListener('click', ()=>{
     if (!stream){ alert('Start capture first.'); return; }
     if (!hasBoard){ alert('Set the board first.'); return; }
-    detectionActive=true; phase='armed'; warmupStartTs=performance.now();
-    winnerHist.length = 0; activeIdx = -1; activeStartTs = 0;
-    perfLastActiveIdx = -1;
-    btnStart.disabled=true; btnStop.disabled=false; updateStatus();
+    if (!fr.supported){ alert('New engine requires VideoFrame support (Chromium/WebCodecs).'); return; }
+    detectionActive=true; phase='armed';
+    btnStart.disabled=true; btnStop.disabled=false; btnResetRounds.disabled=false;
+    updateStatus();
   });
   btnStop.addEventListener('click', ()=>{ detectionActive=false; phase='idle'; btnStart.disabled=false; btnStop.disabled=true; updateStatus(); });
 
   btnResetRounds.addEventListener('click', ()=>{ resetRounds(); });
 
-  selDifficulty.addEventListener('change', ()=>{ difficulty=selDifficulty.value; updateGridFromDifficulty(); resetDetectionState({clearBoard:true}); drawOverlay(); });
-  btnTimingDefaults.addEventListener('click', ()=>{ Object.assign(config, defaultConfig); buildTimingPanel(); });
-
-  ckDebug.addEventListener('change', ()=>{ debug.enabled = ckDebug.checked; drawOverlay(); drawDebugViewer(); });
-  ckDbgHeat.addEventListener('change', ()=>{ debug.overlayHeatmap = ckDbgHeat.checked; });
-  ckDbgSamples.addEventListener('change', ()=>{ debug.overlaySamples = ckDbgSamples.checked; });
-  ckDbgLabels.addEventListener('change', ()=>{ debug.overlayLabels = ckDbgLabels.checked; });
-  ckIgnoreCursor.addEventListener('change', ()=>{ config.ignoreCursor = ckIgnoreCursor.checked; });
-  ckIgnoreNearMouse.addEventListener('change', ()=>{ config.ignoreNearMouse = ckIgnoreNearMouse.checked; });
-  inpCursorRadius.addEventListener('change', ()=>{ const v=Number(inpCursorRadius.value); if (Number.isFinite(v)) config.cursorMaskRadiusPx = Math.max(4, Math.min(40, Math.round(v))); });
-  selDbgView.addEventListener('change', ()=>{ debug.view = selDbgView.value; });
-
-  // Ensure UI reflects defaults
-  ckIgnoreCursor.checked = config.ignoreCursor;
-  ckIgnoreNearMouse.checked = config.ignoreNearMouse;
-  inpCursorRadius.value = String(config.cursorMaskRadiusPx);
-
-  // Loops
-  function uiLoop(){ if (!running) return; drawOverlay(); if (debug.enabled) drawDebugViewer(); requestAnimationFrame(uiLoop); }
-  function videoLoopRaf(){
-    if (!running) return;
-    const tsNow=performance.now();
-    framesInBucket++; if (tsNow-lastFPSTs>=1000){ measuredFps=framesInBucket; elFPS.textContent=String(framesInBucket); framesInBucket=0; lastFPSTs=tsNow; }
-    if (detectionActive){ processFrame(tsNow); }
-    requestAnimationFrame(videoLoopRaf);
-  }
-  function videoLoopVFC(now){
-    if (!running) return;
-    framesInBucket++; if (now-lastFPSTs>=1000){ measuredFps=framesInBucket; elFPS.textContent=String(framesInBucket); framesInBucket=0; lastFPSTs=now; }
-    if (detectionActive){ processFrame(now); }
-    video.requestVideoFrameCallback(videoLoopVFC);
-  }
-  function startLoops(){
-    lastFPSTs=performance.now(); framesInBucket=0;
-    requestAnimationFrame(uiLoop);
-    if (typeof video.requestVideoFrameCallback==='function'){ video.requestVideoFrameCallback(videoLoopVFC); }
-    else { requestAnimationFrame(videoLoopRaf); }
-  }
-
-  // Calibration (Old)
-  function calibrateBaselines(){
-    if (!hasBoard) return;
-    const data = readBoardImageData(); if (!data) return;
-    for (let i=0;i<tileRects.length;i++){
-      const t=tileRects[i]; const avg=avgTileLuminance(data,t);
-      const st=tileState[i]; st.baseline=avg; st.delta=0; st.energyBuf.fill(0); st.energySum=0; st.eIdx=0;
-      st.hold=0; st.refractory=0; st.lowCount=0; st.belowLow=true; st.lastHotTs=0;
-    }
-    warmupStartTs = performance.now();
-  }
-
-  // Commit board rect -> tiles
-  function commitEditorRectToBoard(){
-    if (!editor.rect || !video.videoWidth) return;
-    const vw=overlay.width, vh=overlay.height, sx=(video.videoWidth||1)/vw, sy=(video.videoHeight||1)/vh;
-    const r=editor.rect;
-    boardRect={ x:r.x*sx, y:r.y*sy, w:r.w*sx, h:r.h*sy };
-    tileRects = buildTilesFromSquare(boardRect.x,boardRect.y,boardRect.w,boardRect.h);
-    hasBoard=true; ensureTileState(); calibrateBaselines();
-    btnEditBoard.disabled=false; btnClearBoard.disabled=false;
-  }
+  selDifficulty.addEventListener('change', ()=>{ difficulty=selDifficulty.value; updateGridFromDifficulty(); if (hasBoard){ // rebuild tiles to match rows/cols
+      tileRects = buildTilesFromSquare(boardRect.x,boardRect.y,boardRect.w,boardRect.h);
+      resetDetectionState({clearBoard:false});
+    } drawOverlay(); });
 
   // Init
   updateGridFromDifficulty();
-  buildTimingPanel();
+  syncAdvancedUI();
   resetDetectionState({clearBoard:true});
-  updateModeUI();
+
+  // Link overlay sizing
+  window.addEventListener('resize', updateOverlayBox);
+  video.addEventListener('loadedmetadata', updateOverlayBox);
+  video.addEventListener('play', updateOverlayBox);
 
   const ro = new ResizeObserver(()=> updateOverlayBox());
   ro.observe(previewWrap);
