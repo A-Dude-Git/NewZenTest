@@ -18,7 +18,7 @@
     margin:0; background:radial-gradient(1200px 800px at 20% 0%, var(--navy-800), var(--navy-900));
     color:var(--text-100); font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height:1.4;
   }
-  .app{display:grid; grid-template-columns:320px 1fr 320px; gap:16px; padding:16px; height:100dvh}
+  .app{display:grid; grid-template-columns:420px 1fr; gap:16px; padding:16px; height:100dvh}
   .card{
     background:linear-gradient(180deg, var(--navy-800), var(--navy-850));
     border:1px solid rgba(90,140,200,.15); border-radius:var(--card-radius); box-shadow:var(--shadow);
@@ -28,11 +28,10 @@
   .card-body{padding:14px; overflow:auto}
   .controls{display:grid; gap:12px}
   .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
-  button,select,input[type="checkbox"]{
+  button,select{
     background:linear-gradient(180deg, var(--navy-750), var(--navy-800));
     border:1px solid rgba(80,130,200,.25); color:var(--text-100); border-radius:10px; padding:10px 12px; font-size:14px; cursor:pointer; transition:all .15s ease;
   }
-  input[type="checkbox"]{ width:auto; padding:8px; border-radius:6px; }
   button:hover,select:hover{border-color:var(--blue-400); box-shadow:0 0 0 3px rgba(60,160,255,.15) inset}
   button.primary{background:linear-gradient(180deg,#0d2b4a,#0e2141); border-color:rgba(58,160,255,.7); color:var(--blue-300); font-weight:600}
   button.success{border-color:rgba(56,214,119,.6); color:var(--green-400)}
@@ -40,7 +39,13 @@
   button.ghost{border-color:rgba(120,170,230,.35); color:var(--text-200)}
   button:disabled{opacity:.55; cursor:not-allowed}
   label{display:block; margin-bottom:6px; color:var(--text-200)}
-  .status{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; font-family:var(--mono); font-variant-numeric:tabular-nums}
+  input[type="number"]{
+    width:100%; padding:8px 10px; border-radius:8px;
+    background:linear-gradient(180deg, var(--navy-750), var(--navy-800));
+    border:1px solid rgba(80,130,200,.25); color:var(--text-100);
+    font-variant-numeric: tabular-nums; font-family: var(--mono);
+  }
+  .status{display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin-top:8px; font-family:var(--mono); font-variant-numeric:tabular-nums}
   .status div{padding:8px; background:linear-gradient(180deg, var(--navy-800), var(--navy-850)); border:1px solid rgba(90,140,200,.2); border-radius:8px; color:var(--text-200)}
   .status strong{color:var(--text-100)}
   .preview-wrap{position:relative; width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:radial-gradient(800px 600px at 50% 0%, #0e1a2e, #0b1220)}
@@ -48,11 +53,8 @@
   canvas.overlay{position:absolute}
   .overlay.pe-none{pointer-events:none}
   .overlay.pe-auto{pointer-events:auto}
-  .list{display:flex; flex-direction:column; gap:8px}
-  .step{display:flex; align-items:center; justify-content:space-between; padding:8px 10px; background:linear-gradient(180deg, var(--navy-800), var(--navy-850)); border:1px solid rgba(90,140,200,.2); border-radius:8px; font-family:var(--mono); font-variant-numeric:tabular-nums}
-  .hint{color:var(--muted-400); font-size:13px}
   .grid{display:grid; gap:10px}
-  .grid.cols-3{grid-template-columns:1fr 1fr 1fr}
+  .grid.cols-2{grid-template-columns: 1fr 1fr}
   .divider{height:1px; background:linear-gradient(90deg, transparent, rgba(130,160,210,.25), transparent); margin:8px 0}
   .badge{display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; border:1px solid rgba(90,140,200,.25); color:var(--text-200); font-size:12px; background:linear-gradient(180deg, var(--navy-800), var(--navy-850))}
   .badge .dot{width:8px; height:8px; border-radius:50%; background:var(--blue-500)}
@@ -61,12 +63,12 @@
   .legend .teal{width:10px; height:10px; background:#2dd4d4; border-radius:2px}
   .legend .green{width:10px; height:10px; background:#22c55e; border-radius:2px}
   .legend .board{width:10px; height:10px; background:transparent; border:1px dashed #58b0ff; border-radius:2px}
-  @media (max-width:1100px){.app{grid-template-columns:1fr; height:auto}.card-body{max-height:50vh}.preview-wrap{height:50vh}}
+  @media (max-width:1100px){.app{grid-template-columns:1fr; height:auto}.card-body{max-height:55vh}.preview-wrap{height:55vh}}
 </style>
 </head>
 <body>
   <div class="app">
-    <!-- Left: Controls -->
+    <!-- Left: Controls (wider) -->
     <section class="card">
       <div class="card-header">
         <div>Controls</div>
@@ -90,13 +92,7 @@
             <button id="btnCalibrate" class="">Calibrate</button>
             <button id="btnStart" class="success">Start Detection</button>
             <button id="btnStop" class="warn" disabled>Stop Detection</button>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="row" style="align-items:center">
-            <label style="margin:0">Guide Overlay</label>
-            <input type="checkbox" id="ckGuide" checked />
+            <button id="btnResetRounds" class="">Reset Rounds</button>
           </div>
 
           <div class="divider"></div>
@@ -105,21 +101,26 @@
             <label for="difficulty">Difficulty</label>
             <select id="difficulty">
               <option value="easy">Easy (4×4)</option>
-              <option value="medium" selected>Medium (5×5)</option>
+              <option value="medium">Medium (5×5)</option>
               <option value="hard">Hard (6×6)</option>
-              <option value="expert">Expert (6×6)</option>
+              <option value="expert" selected>Expert (6×6)</option>
             </select>
-            <div class="hint">Changing difficulty clears state and requires setting the board again.</div>
+            <div class="legend" style="margin-top:6px">
+              <span><i class="board"></i> Board</span>
+              <span><i class="teal"></i> Teal (Reveal)</span>
+              <span><i class="green"></i> Green (Input)</span>
+              <span>Guide: numbers + pulsing next tile always shown</span>
+            </div>
           </div>
 
           <div class="divider"></div>
 
           <div>
             <div style="display:flex;align-items:center;justify-content:space-between">
-              <label>Detector Config</label>
-              <button id="btnRestoreDefaults" title="Restore Defaults">Restore Defaults</button>
+              <label>Timing</label>
+              <button id="btnTimingDefaults" title="Restore Timing Defaults">Restore Timing Defaults</button>
             </div>
-            <div class="grid cols-3" id="configGrid"></div>
+            <div class="grid cols-2" id="timingGrid"></div>
           </div>
 
           <div class="divider"></div>
@@ -130,14 +131,7 @@
             <div>Round: <strong id="round">1</strong></div>
             <div>Reveal: <strong id="revealCount">0</strong></div>
             <div>Input: <strong id="inputCount">0</strong></div>
-            <div>Grid: <strong id="gridSize">5×5</strong></div>
-          </div>
-
-          <div class="legend">
-            <span><i class="board"></i> Board</span>
-            <span><i class="teal"></i> Teal (Reveal)</span>
-            <span><i class="green"></i> Green (Input)</span>
-            <span>Tip: Set Board → drag a square, then Edit with handles. Next tile is highlighted.</span>
+            <div>Grid: <strong id="gridSize">6×6</strong></div>
           </div>
         </div>
       </div>
@@ -149,19 +143,6 @@
       <div class="preview-wrap" id="previewWrap">
         <video id="video" autoplay playsinline muted></video>
         <canvas id="overlay" class="overlay pe-none"></canvas>
-      </div>
-    </section>
-
-    <!-- Right: Pattern View -->
-    <section class="card">
-      <div class="card-header">
-        <div>Pattern</div>
-        <div class="badge"><span>Input</span> <span id="inputProgress">0 / 3</span></div>
-      </div>
-      <div class="card-body">
-        <div id="sequence" class="list">
-          <div class="hint">Detected sequence appears here as (row, col) and index. Repeats are kept.</div>
-        </div>
       </div>
     </section>
   </div>
@@ -183,11 +164,11 @@
   const btnCalibrate = document.getElementById('btnCalibrate');
   const btnStart = document.getElementById('btnStart');
   const btnStop = document.getElementById('btnStop');
-  const ckGuide = document.getElementById('ckGuide');
+  const btnResetRounds = document.getElementById('btnResetRounds');
 
   const selDifficulty = document.getElementById('difficulty');
-  const btnRestoreDefaults = document.getElementById('btnRestoreDefaults');
-  const configGrid = document.getElementById('configGrid');
+  const btnTimingDefaults = document.getElementById('btnTimingDefaults');
+  const timingGrid = document.getElementById('timingGrid');
 
   const elFPS = document.getElementById('fps');
   const elPhase = document.getElementById('phase');
@@ -195,8 +176,6 @@
   const elRevealCount = document.getElementById('revealCount');
   const elInputCount = document.getElementById('inputCount');
   const elGridSize = document.getElementById('gridSize');
-  const elInputProgress = document.getElementById('inputProgress');
-  const elSequence = document.getElementById('sequence');
 
   // State
   const defaultConfig = {
@@ -204,17 +183,14 @@
     energyWindow:5, energyScale:2.5, requireColorToStartReveal:true, warmupMs:450,
     surgeRejectPct:0.4, inputTimeoutMs:12000, revealHardTimeoutMs:1800,
     clusterGapMs:900, rearmDelayMs:120,
-    // New guards
-    dedupeMs:160,                   // prevent same tile twice in same pulse cluster
-    belowLowFramesToBypass:2        // frames below low required to bypass refractory for repeats
+    dedupeMs:160, belowLowFramesToBypass:2
   };
   const config = { ...defaultConfig };
 
-  let showGuide = true;
-
   let stream=null, track=null, running=false, detectionActive=false, hasBoard=false;
 
-  let difficulty='medium', rows=5, cols=5;
+  // Default to Expert
+  let difficulty='expert', rows=6, cols=6;
 
   let boardRect=null; // video coords
   let tileRects=[];
@@ -249,7 +225,7 @@
       case 'medium': rows=5; cols=5; break;
       case 'hard':
       case 'expert': rows=6; cols=6; break;
-      default: rows=5; cols=5;
+      default: rows=6; cols=6;
     }
     elGridSize.textContent = `${cols}×${rows}`;
   }
@@ -262,46 +238,56 @@
       btnEditBoard.disabled=true; btnDoneEdit.disabled=true; btnClearBoard.disabled=true;
       editor.mode='idle'; editor.rect=null; editor.activeHandle=null;
     }
-    updateStatus(); renderSequence();
+    updateStatus();
+  }
+  function resetRounds(){
+    roundIndex=0; revealLenExpected=3; revealSeq=[]; inputSeq=[];
+    phase='armed'; warmupStartTs=performance.now();
+    updateStatus();
   }
   function updateStatus(){
     elPhase.textContent=phase;
     elRound.textContent=String(roundIndex+1);
     elRevealCount.textContent=String(revealSeq.length);
     elInputCount.textContent=String(inputSeq.length);
-    elInputProgress.textContent=`${inputSeq.length} / ${revealLenExpected}`;
   }
-  function renderSequence(){
-    elSequence.innerHTML='';
-    if (revealSeq.length===0 && inputSeq.length===0){
-      const d=document.createElement('div'); d.className='hint';
-      d.textContent='Detected sequence appears here as (row, col) and index. Repeats are kept.';
-      elSequence.appendChild(d); return;
-    }
-    let i=0;
-    for (const idx of revealSeq){
-      const t=tileRects[idx]; const r=t?t.row+1:'?'; const c=t?t.col+1:'?';
-      const div=document.createElement('div'); div.className='step';
-      div.innerHTML=`<span>#${(++i)} — (r${r}, c${c})</span><span>idx ${idx}</span>`;
-      elSequence.appendChild(div);
-    }
-  }
-  function createConfigGrid(){
-    configGrid.innerHTML='';
-    const entries=[
-      ['thrHigh',config.thrHigh],['thrLow',config.thrLow],['holdFrames',config.holdFrames],['refractoryFrames',config.refractoryFrames],
-      ['emaAlpha',config.emaAlpha],['energyWindow',config.energyWindow],['energyScale',config.energyScale],
-      ['requireColorToStartReveal',String(config.requireColorToStartReveal)],['warmupMs',config.warmupMs],['surgeRejectPct',config.surgeRejectPct],
-      ['inputTimeoutMs',config.inputTimeoutMs],['revealHardTimeoutMs',config.revealHardTimeoutMs],['clusterGapMs',config.clusterGapMs],['rearmDelayMs',config.rearmDelayMs],
-      ['dedupeMs',config.dedupeMs],['belowLowFramesToBypass',config.belowLowFramesToBypass]
+
+  // Timing panel (only timing-related knobs)
+  function buildTimingPanel(){
+    timingGrid.innerHTML='';
+    const fields = [
+      {key:'dedupeMs', label:'Pulse Dedupe (ms)', step:10, min:60, max:600},
+      {key:'belowLowFramesToBypass', label:'Below-Low Frames to Repeat', step:1, min:0, max:12},
+      {key:'clusterGapMs', label:'Cluster Gap (ms)', step:50, min:200, max:2000},
+      {key:'revealHardTimeoutMs', label:'Reveal Hard Timeout (ms)', step:50, min:500, max:4000},
+      {key:'inputTimeoutMs', label:'Input Timeout (ms)', step:250, min:3000, max:30000},
+      {key:'rearmDelayMs', label:'Rearm Delay (ms)', step:10, min:30, max:500},
+      {key:'holdFrames', label:'Hold Frames', step:1, min:0, max:8},
+      {key:'refractoryFrames', label:'Refractory Frames', step:1, min:0, max:20},
     ];
-    for (const [k,v] of entries){
+    for (const f of fields){
       const wrap=document.createElement('div');
-      const lab=document.createElement('div'); lab.style.color='var(--muted-400)'; lab.style.fontSize='12px'; lab.textContent=k;
-      const val=document.createElement('div'); val.style.fontFamily='var(--mono)'; val.style.fontVariantNumeric='tabular-nums'; val.textContent=String(v);
-      wrap.appendChild(lab); wrap.appendChild(val); configGrid.appendChild(wrap);
+      const lab=document.createElement('label'); lab.textContent=f.label; lab.htmlFor = `tim_${f.key}`;
+      const inp=document.createElement('input');
+      inp.type='number'; inp.id=`tim_${f.key}`; inp.value=String(config[f.key]);
+      if (f.step!=null) inp.step=String(f.step);
+      if (f.min!=null) inp.min=String(f.min);
+      if (f.max!=null) inp.max=String(f.max);
+      inp.addEventListener('change', ()=>{
+        const v = Number(inp.value);
+        if (!Number.isFinite(v)) return;
+        config[f.key] = (f.key==='holdFrames' || f.key==='refractoryFrames' || f.key==='belowLowFramesToBypass') ? Math.round(v) : v;
+      });
+      wrap.appendChild(lab); wrap.appendChild(inp);
+      timingGrid.appendChild(wrap);
     }
   }
+
+  btnTimingDefaults.addEventListener('click', ()=>{
+    const keep = { warmupMs: config.warmupMs }; // preserve warmup if you tweaked elsewhere
+    Object.assign(config, defaultConfig, keep);
+    buildTimingPanel();
+  });
 
   // Capture
   async function startCapture(){
@@ -358,7 +344,7 @@
     if (overlay.height !== h) overlay.height = h;
   }
 
-  // Draw overlay (board, tiles, editor, guide)
+  // Draw overlay (board, tiles, guide, editor)
   function drawOverlay(){
     updateOverlayBox();
 
@@ -383,8 +369,8 @@
       ctxOv.restore();
     }
 
-    // Guidance overlay: numbers + pulsing next tile
-    if (showGuide && phase === 'waiting-input' && revealSeq.length > 0 && boardRect){
+    // Always-on guidance: numbers + pulsing “next”
+    if (phase === 'waiting-input' && revealSeq.length > 0 && boardRect){
       const now = performance.now();
       const pulse = 0.5 + 0.5*Math.sin(now/180); // 0..1
       const nextIdx = revealSeq[inputSeq.length] ?? null;
@@ -401,18 +387,15 @@
         const cx = (t.x + t.w/2)*scaleX;
         const cy = (t.y + t.h/2)*scaleY;
 
-        // badge background
         ctxOv.fillStyle = (i < inputSeq.length) ? 'rgba(34,197,94,0.85)' : 'rgba(88,176,255,0.85)';
         ctxOv.beginPath();
         ctxOv.arc(cx, cy, 11, 0, Math.PI*2);
         ctxOv.fill();
 
-        // number
         ctxOv.fillStyle = '#0b1220';
         ctxOv.fillText(String(i+1), cx, cy);
       }
 
-      // Pulse the next tile to press
       if (nextIdx != null){
         const t = tileRects[nextIdx];
         if (t){
@@ -427,7 +410,7 @@
       ctxOv.restore();
     }
 
-    // Editor visuals (draw / edit with handles)
+    // Editor visuals
     if (editor.mode === 'draw' && editor.rect){
       const r = editor.rect;
       const sq = squareFromRectCentered(r, vw, vh);
@@ -687,14 +670,12 @@
       const inWarmup=(tsNow - warmupStartTs) < config.warmupMs;
       if (inWarmup){ st.belowLow = delta<=config.thrLow; st.hold = (delta>=config.thrHigh)?Math.min(config.holdFrames, st.hold+1):0; continue; }
 
-      // Hysteresis + new lowCount latch
       if (delta<=config.thrLow){ st.belowLow=true; st.lowCount = Math.min(255, st.lowCount+1); st.refractory=0; }
       else { st.belowLow=false; st.lowCount=0; if (st.refractory>0) st.refractory--; }
 
       st.hold = (delta>=config.thrHigh)?Math.min(config.holdFrames, st.hold+1):0;
       const byHold=(st.hold>=config.holdFrames), byEnergy=updateEnergy(tsNow,i,delta);
 
-      // Repeats allowed only after sustained below-low
       const canRepeatBypass = st.lowCount >= config.belowLowFramesToBypass;
       const canTrigger = (st.refractory===0) || canRepeatBypass;
 
@@ -712,20 +693,20 @@
   // Loops
   function uiLoop(){
     if (!running){ return; }
-    drawOverlay(); // runs every frame for smooth guide/editor visuals
+    drawOverlay(); // overlay/guide/editor every frame
     requestAnimationFrame(uiLoop);
   }
   function videoLoopRaf(){
     if (!running){ return; }
     const tsNow=performance.now();
     framesInBucket++; if (tsNow-lastFPSTs>=1000){ elFPS.textContent=String(framesInBucket); framesInBucket=0; lastFPSTs=tsNow; }
-    if (detectionActive){ const r=processFrame(tsNow); updateStatus(); renderSequence(); }
+    if (detectionActive){ processFrame(tsNow); updateStatus(); }
     requestAnimationFrame(videoLoopRaf);
   }
   function videoLoopVFC(now){
     if (!running){ return; }
     framesInBucket++; if (now-lastFPSTs>=1000){ elFPS.textContent=String(framesInBucket); framesInBucket=0; lastFPSTs=now; }
-    if (detectionActive){ const r=processFrame(now); updateStatus(); renderSequence(); }
+    if (detectionActive){ processFrame(now); updateStatus(); }
     video.requestVideoFrameCallback(videoLoopVFC);
   }
   function startLoops(){
@@ -860,12 +841,15 @@
   });
   btnStop.addEventListener('click', ()=>{ detectionActive=false; phase='idle'; btnStart.disabled=false; btnStop.disabled=true; updateStatus(); });
 
+  btnResetRounds.addEventListener('click', ()=>{ resetRounds(); });
+
   selDifficulty.addEventListener('change', ()=>{ difficulty=selDifficulty.value; updateGridFromDifficulty(); resetDetectionState({clearBoard:true}); drawOverlay(); });
-  btnRestoreDefaults.addEventListener('click', ()=>{ Object.assign(config, defaultConfig); createConfigGrid(); });
-  ckGuide.addEventListener('change', ()=>{ showGuide = ckGuide.checked; });
 
   // Init
-  updateGridFromDifficulty(); createConfigGrid(); resetDetectionState({clearBoard:true});
+  updateGridFromDifficulty();
+  buildTimingPanel();
+  resetDetectionState({clearBoard:true});
+
   const ro = new ResizeObserver(()=> updateOverlayBox());
   ro.observe(previewWrap);
 })();
