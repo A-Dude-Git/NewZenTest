@@ -482,7 +482,6 @@
   }
 
   function createConfigGrid(){
-    // We'll expose read-only labels for required values to prevent accidental misconfig while allowing Restore Defaults to demonstrate the values.
     configGrid.innerHTML = '';
     const entries = [
       ['thrHigh', config.thrHigh], ['thrLow', config.thrLow],
@@ -554,34 +553,90 @@
     btnStopCapture.disabled = true;
   }
 
-  // ---------------- Board Detection ----------------
+  // ---------------- Math / Utils ----------------
   function luminance(r,g,b){ return 0.2126*r + 0.7152*g + 0.0722*b; }
 
-  function samplePixel(img,w,x,y){
-    const xi = Math.max(0, Math.min(w-1, x|0));
-    const yi = Math.max(0, Math.min((img.data.length/(w*4))-1, y|0));
-    const idx = (yi*w + xi)*4;
-    return [img.data[idx], img.data[idx+1], img.data[idx+2]];
-  }
-
-  function computeBackgroundColor(img, w, h){
-    // Average 6px strips on left and right 2% width
-    const margin = Math.max(2, Math.floor(w*0.02));
-    let sumL=[0,0,0], sumR=[0,0,0], nL=0, nR=0;
-    for (let y=0; y<h; y+=Math.max(1, (h/200)|0)){
-      for (let x=0; x<margin; x++){
-        const i = (y*w + x)*4;
-        sumL[0]+=img.data[i]; sumL[1]+=img.data[i+1]; sumL[2]+=img.data[i+2]; nL++;
-      }
-      for (let x=w-margin; x<w; x++){
-        const i = (y*w + x)*4;
-        sumR[0]+=img.data[i]; sumR[1]+=img.data[i+1]; sumR[2]+=img.data[i+2]; nR++;
+  // ---------------- Robust Board Detection (Edge-Dense Square) ----------------
+  function computeGradMag(img, w, h){
+    const mag = new Float32Array(w*h);
+    const d = img.data;
+    for (let y=1; y<h-1; y++){
+      for (let x=1; x<w-1; x++){
+        const i   = (y*w + x)*4;
+        const iL  = (y*w + (x-1))*4, iR = (y*w + (x+1))*4;
+        const iT  = ((y-1)*w + x)*4, iB = ((y+1)*w + x)*4;
+        const dx = Math.abs(d[iR]-d[iL]) + Math.abs(d[iR+1]-d[iL+1]) + Math.abs(d[iR+2]-d[iL+2]);
+        const dy = Math.abs(d[iB]-d[iT]) + Math.abs(d[iB+1]-d[iT+1]) + Math.abs(d[iB+2]-d[iT+2]);
+        mag[y*w + x] = dx + dy;
       }
     }
-    const r = ((sumL[0]/Math.max(1,nL)) + (sumR[0]/Math.max(1,nR)))/2|0;
-    const g = ((sumL[1]/Math.max(1,nL)) + (sumR[1]/Math.max(1,nR)))/2|0;
-    const b = ((sumL[2]/Math.max(1,nL)) + (sumR[2]/Math.max(1,nR)))/2|0;
-    return {r,g,b,y:luminance(r,g,b)};
+    // tiny 3x3 blur
+    const out = new Float32Array(w*h);
+    for (let y=1; y<h-1; y++){
+      for (let x=1; x<w-1; x++){
+        let s=0;
+        s += mag[(y-1)*w + (x-1)] + mag[(y-1)*w + x] + mag[(y-1)*w + (x+1)];
+        s += mag[y*w + (x-1)]     + mag[y*w + x]     + mag[y*w + (x+1)];
+        s += mag[(y+1)*w + (x-1)] + mag[(y+1)*w + x] + mag[(y+1)*w + (x+1)];
+        out[y*w + x] = s/9;
+      }
+    }
+    return out;
+  }
+
+  function integralImage(arr, w, h){
+    const ii = new Float32Array((w+1)*(h+1));
+    for (let y=1; y<=h; y++){
+      let row=0;
+      for (let x=1; x<=w; x++){
+        row += arr[(y-1)*w + (x-1)];
+        ii[y*(w+1)+x] = ii[(y-1)*(w+1)+x] + row;
+      }
+    }
+    return ii;
+  }
+  function sumRect(ii, w, x0, y0, x1, y1){ // x1,y1 exclusive
+    const W=w+1;
+    return ii[y1*W+x1] - ii[y0*W+x1] - ii[y1*W+x0] + ii[y0*W+x0];
+  }
+
+  function findBestSquare(ii, w, h){
+    const minSide = Math.floor(Math.min(w,h) * 0.35);
+    const maxSide = Math.floor(Math.min(w,h) * 0.90);
+    let best = null, bestScore = -1;
+    for (let s=minSide; s<=maxSide; s += Math.max(12, (s/10)|0)){
+      const step = Math.max(8, (s/6)|0);
+      for (let y=1; y+s<h; y+=step){
+        for (let x=1; x+s<w; x+=step){
+          const sum = sumRect(ii, w, x, y, x+s, y+s);
+          const score = sum / (s*s);
+          if (score > bestScore){
+            bestScore = score; best = { x, y, s };
+          }
+        }
+      }
+    }
+    return best;
+  }
+
+  function buildTilesFromSquare(bx, by, bw, bh){
+    const stepX = bw / cols;
+    const stepY = bh / rows;
+    // Robust default gap for rounded tiles; tweak if needed 0.10–0.16
+    const gapRatio = 0.12;
+    const wTile = stepX * (1 - gapRatio);
+    const hTile = stepY * (1 - gapRatio);
+    const gx = stepX - wTile, gy = stepY - hTile;
+    const out = [];
+    let idx=0;
+    for (let r=0; r<rows; r++){
+      for (let c=0; c<cols; c++){
+        const x = bx + c*stepX + gx*0.5;
+        const y = by + r*stepY + gy*0.5;
+        out.push({ x, y, w: wTile, h: hTile, row:r, col:c, index:idx++ });
+      }
+    }
+    return out;
   }
 
   function autoDetectBoardFromFrame(){
@@ -589,108 +644,35 @@
       alert('Video not ready. Start capture and bring the game window into view.');
       return null;
     }
-    // Downscale for scanning
-    const scanW = 960;
+    // Downscale for analysis
+    const scanW = Math.min(1152, video.videoWidth);
     const scale = scanW / video.videoWidth;
     const scanH = Math.floor(video.videoHeight * scale);
     const scanCanvas = document.createElement('canvas');
-    scanCanvas.width = scanW;
-    scanCanvas.height = scanH;
+    scanCanvas.width = scanW; scanCanvas.height = scanH;
     const sctx = scanCanvas.getContext('2d', { willReadFrequently: true });
     sctx.drawImage(video, 0, 0, scanW, scanH);
-    const img = sctx.getImageData(0,0,scanW,scanH);
-    const bg = computeBackgroundColor(img, scanW, scanH);
-    const bgTol = 14; // background luminance tolerance
+    const img = sctx.getImageData(0, 0, scanW, scanH);
 
-    // Horizontal scan at mid-height
-    const yMid = (scanH/2)|0;
-    let left = 0, right = scanW-1;
-    // find first non-bg left
-    for (let x=0; x<scanW; x++){
-      const i = (yMid*scanW + x)*4;
-      const L = luminance(img.data[i], img.data[i+1], img.data[i+2]);
-      if (Math.abs(L - bg.y) > bgTol){ left = x; break; }
-    }
-    // find first non-bg right
-    for (let x=scanW-1; x>=0; x--){
-      const i = (yMid*scanW + x)*4;
-      const L = luminance(img.data[i], img.data[i+1], img.data[i+2]);
-      if (Math.abs(L - bg.y) > bgTol){ right = x; break; }
-    }
-    // Vertical scan near mid-width, require 30px continuous background run to consider outside
-    const xMid = ((left + right)/2)|0;
-    let top = 0, bottom = scanH-1;
-    for (let y=0; y<scanH; y++){
-      const i = (y*scanW + xMid)*4;
-      const L = luminance(img.data[i], img.data[i+1], img.data[i+2]);
-      if (Math.abs(L - bg.y) > bgTol){ top = y; break; }
-    }
-    for (let y=scanH-1; y>=0; y--){
-      const i = (y*scanW + xMid)*4;
-      const L = luminance(img.data[i], img.data[i+1], img.data[i+2]);
-      if (Math.abs(L - bg.y) > bgTol){ bottom = y; break; }
-    }
+    // Edge-dense square search
+    const mag = computeGradMag(img, scanW, scanH);
+    const ii = integralImage(mag, scanW, scanH);
+    const win = findBestSquare(ii, scanW, scanH);
+    if (!win){ console.warn('No dense-edge square found'); return null; }
 
-    // Expand slightly inward to avoid borders
-    left = Math.max(0, left-2);
-    right = Math.min(scanW-1, right+2);
-    top = Math.max(0, top-2);
-    bottom = Math.min(scanH-1, bottom+2);
+    // Slight inward pad
+    const pad = Math.floor(win.s * 0.02);
+    const sx = win.x + pad, sy = win.y + pad, ss = win.s - pad*2;
 
-    if (right - left < 50 || bottom - top < 50){
-      console.warn('Board detection failed: bounds too small.');
-      return null;
-    }
+    // Map back to video coordinates
+    const bx = sx / scale, by = sy / scale, bw = ss / scale, bh = ss / scale;
 
-    // Probe ~30 px inside bounds to estimate spacing (best-effort; fallback to equal spacing)
-    const inset = 30;
-    const pxL = Math.min(right-1, left+inset);
-    const pxR = Math.max(left+1, right-inset);
-    const pyT = Math.min(bottom-1, top+inset);
-    const pyB = Math.max(top+1, bottom-inset);
-
-    // Horizontal luminance along yProbe
-    const yProbe = ((pyT + pyB)/2)|0;
-    const spanW = pxR - pxL + 1;
-    const line = new Float32Array(spanW);
-    for (let x=pxL, j=0; x<=pxR; x++, j++){
-      const i = (yProbe*scanW + x)*4;
-      line[j] = luminance(img.data[i], img.data[i+1], img.data[i+2]);
-    }
-    // crude peak-to-valley to estimate gap ratio; fallback
-    let sumDiff = 0;
-    for (let i=1;i<spanW;i++) sumDiff += Math.abs(line[i]-line[i-1]);
-    const edgeDensity = sumDiff / Math.max(1, spanW);
-    // Heuristic gap ratio: more edges -> larger gaps presumed
-    const gapRatioX = Math.max(0.06, Math.min(0.18, (edgeDensity/60)));
-    const gapRatioY = gapRatioX; // assume similar in Y
-
-    // Map back to video space coordinates
-    const bx = left / scale;
-    const by = top / scale;
-    const bw = (right - left + 1) / scale;
-    const bh = (bottom - top + 1) / scale;
-
-    // Construct TileRect grid with equal steps minus estimated gaps
-    const stepX = bw / cols;
-    const stepY = bh / rows;
-    const tileW = stepX * (1 - gapRatioX);
-    const tileH = stepY * (1 - gapRatioY);
-    const gapX = stepX - tileW;
-    const gapY = stepY - tileH;
-    const tx = [];
-    let idx = 0;
-    for (let r=0; r<rows; r++){
-      for (let c=0; c<cols; c++){
-        const x = bx + c*stepX + gapX*0.5;
-        const y = by + r*stepY + gapY*0.5;
-        tx.push({ x, y, w: tileW, h: tileH, row:r, col:c, index:idx++ });
-      }
-    }
-
+    // Build tiles using current rows/cols
+    const tx = buildTilesFromSquare(bx, by, bw, bh);
     return { boardRect: {x:bx, y:by, w:bw, h:bh}, tileRects: tx };
   }
 
+  // ---------------- Overlay ----------------
   function drawOverlay(hotIndex = -1){
     // Size to video element box
     const vw = video.clientWidth|0;
@@ -701,7 +683,6 @@
 
     if (!boardRect || !video.videoWidth) return;
 
-    // Transform from video natural size to displayed size
     const scaleX = vw / video.videoWidth;
     const scaleY = vh / video.videoHeight;
 
@@ -711,6 +692,15 @@
     ctxOv.setLineDash([6,4]);
     ctxOv.lineWidth = 2;
     ctxOv.strokeRect(boardRect.x*scaleX, boardRect.y*scaleY, boardRect.w*scaleX, boardRect.h*scaleY);
+    ctxOv.restore();
+
+    // Tile wireframe (helps verify detection)
+    ctxOv.save();
+    ctxOv.strokeStyle = 'rgba(140,200,255,0.28)';
+    ctxOv.lineWidth = 1;
+    for (const t of tileRects){
+      ctxOv.strokeRect(t.x*scaleX, t.y*scaleY, t.w*scaleX, t.h*scaleY);
+    }
     ctxOv.restore();
 
     // Optional hot highlight
@@ -759,12 +749,10 @@
 
   // ---------------- Color Masks ----------------
   function isTealRGB(r,g,b){
-    // Teal: g>=96, b>=96, g>=1.25r, b>=1.15r, and g<=1.6*b
     if (g>=96 && b>=96 && g>=1.25*r && b>=1.15*r && g<=1.6*b) return true;
     return false;
   }
   function isGreenRGB(r,g,b){
-    // Green: g>=110, g>=1.4r, g>=1.25b
     if (g>=110 && g>=1.4*r && g>=1.25*b) return true;
     return false;
   }
@@ -772,7 +760,6 @@
   // ---------------- Calibration ----------------
   function calibrateBaselines(){
     if (!hasBoard) return;
-    // Read a single frame board-only and set baselines to current luminance per tile
     const data = readBoardImageData();
     if (!data) return;
     for (let i=0;i<tileRects.length;i++){
@@ -804,7 +791,6 @@
   }
 
   function avgTileLuminance(img, t){
-    // sample sparse 5x5 using precomputed offsets scaled to work canvas coords
     const sx = work.width / boardRect.w;
     const sy = work.height / boardRect.h;
     const off = sampleOffsets[t.index];
@@ -853,11 +839,9 @@
   }
 
   function handleFSMFrame(tsNow, events){
-    // events: { reveals: number[], inputs: number[], hotIndex: number }
     const surgeLimit = Math.floor(tileRects.length * config.surgeRejectPct);
     const totalEvents = events.reveals.length + events.inputs.length;
     if (totalEvents > surgeLimit){
-      // discard this frame
       return { transitioned:false, hot: -1 };
     }
 
@@ -868,11 +852,9 @@
 
     switch(phase){
       case 'idle':
-        // We don't accept events in idle; we just wait for Start Detection
         break;
 
       case 'armed':
-        // Start reveal only if teal appears; requireColorToStartReveal enforces this
         if (!inWarmup){
           if (config.requireColorToStartReveal && events.reveals.length>0){
             phase = 'reveal';
@@ -880,7 +862,6 @@
             inputSeq = [];
             revealStartTs = tsNow;
             lastClusterTs = tsNow;
-            // Accept reveals in this frame (order stable by index)
             for (const idx of events.reveals){
               revealSeq.push(idx);
               tileState[idx].lastHotTs = tsNow;
@@ -905,7 +886,6 @@
             lastClusterTs = tsNow;
           }
         }
-        // End reveal if expected length reached OR timeouts
         if (revealSeq.length >= revealLenExpected || hardElapsed >= config.revealHardTimeoutMs || sinceCluster >= config.clusterGapMs){
           phase = 'waiting-input';
           inputSeq = [];
@@ -926,19 +906,15 @@
             }
           }
         }
-        // Auto-advance when inputs == expected
         if (inputSeq.length >= revealLenExpected){
-          // Next round
           roundIndex += 1;
           revealLenExpected = 3 + (roundIndex);
           phase = 'rearming';
           rearmTs = tsNow;
-          // Clear pattern for next round view
           revealSeq = [];
           inputSeq = [];
           transitioned = true;
         } else if (inputElapsed >= config.inputTimeoutMs){
-          // Timeout: rearm but keep round index same (optional). We'll rearm and don't penalize.
           phase = 'rearming';
           rearmTs = tsNow;
           revealSeq = [];
@@ -968,37 +944,31 @@
     const tealIndices = [];
     const greenIndices = [];
 
-    // Evaluate per-tile
     for (let i=0;i<tileRects.length;i++){
       const t = tileRects[i];
       const st = tileState[i];
 
-      // color classification from samples
       const cls = classifyTileRGB(img, t);
 
-      // luminance & EMA
       const avgL = avgTileLuminance(img, t);
       const base = st.baseline = st.baseline*(1-config.emaAlpha) + avgL*config.emaAlpha;
       const delta = st.delta = avgL - base;
 
       const inWarmup = (tsNow - warmupStartTs) < config.warmupMs;
       if (inWarmup) {
-        // During warmup we only set baseline, no trigger
         st.belowLow = delta <= config.thrLow;
         st.hold = (delta >= config.thrHigh) ? Math.min(config.holdFrames, st.hold+1) : 0;
         continue;
       }
 
-      // Hysteresis / refractory
       if (delta <= config.thrLow){
         st.belowLow = true;
-        st.refractory = 0; // bypass refractory once below low
+        st.refractory = 0;
       }else{
         st.belowLow = false;
         if (st.refractory > 0) st.refractory--;
       }
 
-      // Hold
       if (delta >= config.thrHigh){
         st.hold = Math.min(config.holdFrames, st.hold+1);
       }else{
@@ -1006,18 +976,15 @@
       }
       const byHold = (st.hold >= config.holdFrames);
 
-      // Energy
       const byEnergy = updateEnergy(tsNow, i, delta);
 
       const canTrigger = (st.refractory === 0) || st.belowLow;
       const wantsTrigger = canTrigger && (byHold || byEnergy);
 
       if (wantsTrigger){
-        // Classification gating by phase: teal for reveal, green for input
         if (phase === 'armed' || phase === 'reveal'){
           if (cls.teal){
             tealIndices.push(i);
-            // Set refractory on trigger
             st.refractory = config.refractoryFrames;
           }
         } else if (phase === 'waiting-input'){
@@ -1029,7 +996,6 @@
       }
     }
 
-    // Surge rejection and FSM transition/process
     const res = handleFSMFrame(tsNow, { reveals: tealIndices, inputs: greenIndices, hotIndex: -1 });
 
     return { hot: res.hot };
@@ -1040,7 +1006,6 @@
     if (!running) return;
     const tsNow = performance.now();
 
-    // FPS calc (approx)
     framesInBucket++;
     if (tsNow - lastFPSTs >= 1000){
       elFPS.textContent = String(framesInBucket);
@@ -1048,7 +1013,6 @@
       lastFPSTs = tsNow;
     }
 
-    // Process
     let hot = -1;
     if (detectionActive){
       const { hot: h } = processFrame(tsNow);
@@ -1064,7 +1028,6 @@
   function onFrame(now, metadata){
     if (!running) return;
 
-    // FPS from rVFC: use frames per sec via timestamps
     framesInBucket++;
     if (now - lastFPSTs >= 1000){
       elFPS.textContent = String(framesInBucket);
@@ -1072,7 +1035,6 @@
       lastFPSTs = now;
     }
 
-    // Process
     let hot = -1;
     if (detectionActive){
       const { hot: h } = processFrame(now);
@@ -1086,7 +1048,6 @@
   }
 
   function startLoop(){
-    // resize overlay every tick via drawOverlay sizing to video client box
     lastFPSTs = performance.now();
     framesInBucket = 0;
     if ('requestVideoFrameCallback' in HTMLVideoElement.prototype && typeof video.requestVideoFrameCallback === 'function'){
@@ -1154,7 +1115,6 @@
   selDifficulty.addEventListener('change', (e) => {
     difficulty = selDifficulty.value;
     updateGridFromDifficulty();
-    // Changing difficulty clears state and invalidates board/tile rects
     resetDetectionState({ clearBoard:true });
   });
 
@@ -1167,11 +1127,6 @@
   updateGridFromDifficulty();
   createConfigGrid();
   resetDetectionState({ clearBoard:true });
-
-  // ---------------- Accept: Idle screen guard (Train button case) ----------------
-  // Note: The warmup + requireColorToStartReveal + surgeReject will prevent spurious reveals
-  // on idle screens (e.g., cyan "Train" buttons). Teal start is required to enter reveal.
-
 })();
 </script>
 </body>
