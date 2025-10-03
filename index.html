@@ -53,8 +53,8 @@
   video{max-width:100%; max-height:100%; border-radius:10px; border:1px solid rgba(80,130,200,.25); background:#000}
   canvas.overlay{
     position:absolute;
-    z-index:3;           /* above video */
-    touch-action:none;   /* avoid touch gestures eating pointer events */
+    z-index:3;
+    touch-action:none;
     user-select:none;
     -webkit-user-select:none;
   }
@@ -244,24 +244,27 @@
   const elInputCount = document.getElementById('inputCount');
   const elGridSize = document.getElementById('gridSize');
 
-  // Stable defaults + Min Split + Cursor suppression
+  // Config: RLE step extraction + cursor suppression
   const defaultConfig = {
     thrHigh:10, thrLow:6, holdFrames:1, refractoryFrames:6, emaAlpha:0.20,
     energyWindow:5, energyScale:2.5, warmupMs:450, surgeRejectPct:0.4,
-    revealStepGapMs:140,
     revealEndSilenceMs:700,
-    minStepSplitMs:90,
     dedupeMs:160,
     belowLowFramesToBypass:2,
     inputTimeoutMs:12000,
     rearmDelayMs:120,
     requireColorToStartReveal:true,
+    // RLE extraction
+    winnerModeWindow:3,
+    stepPersistFrames:2,
+    minSwitchGapMs:90,
+    minTealHits:4,
     // Cursor suppression
     ignoreCursor:true,
     ignoreNearMouse:true,
     cursorWhiteSatMax:0.16,
     cursorWhiteVMin:0.88,
-    cursorMaskRadiusPx:12,     // work-canvas px
+    cursorMaskRadiusPx:12,   // work-canvas pixels
     cursorMaskRecentMs:120
   };
   const config = { ...defaultConfig };
@@ -275,7 +278,7 @@
     view: 'raw'
   };
 
-  // Mouse tracking for cursor masking
+  // Mouse tracking (for cursor mask)
   let lastMouse = { xOverlay:-1, yOverlay:-1, xWork:-1, yWork:-1, inBoard:false, ts:0 };
   function updateLastMouseFromEvent(e){
     const now = performance.now();
@@ -328,8 +331,10 @@
   // Timing marks
   let warmupStartTs=0, inputStartTs=0, rearmTs=0;
 
-  // Reveal clusterer
-  let stepCluster=null;   // { startTs, tally: Map, firstSeen: Map, leadIdx }
+  // RLE winner tracking
+  const winnerHist = []; // last N winners (teal)
+  let activeIdx = -1;
+  let activeStartTs = 0;
   let lastTealTs=0;
 
   // FPS
@@ -344,11 +349,11 @@
   // Press/drag state for board drawing/editing
   const pointerState = { active:false, id:-1 };
 
-  // Helpers
+  // Utils
   function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
   function luminance(r,g,b){ return 0.2126*r + 0.7152*g + 0.0722*b; }
 
-  // Overlay sizing: match the video box
+  // Overlay sizing
   function updateOverlayBox(){
     const v = video.getBoundingClientRect();
     const p = previewWrap.getBoundingClientRect();
@@ -362,7 +367,6 @@
     if (overlay.height !== h) overlay.height = h;
   }
 
-  // Pointer toggling for overlay
   function setOverlayPointer(on){
     overlay.classList.toggle('pe-auto', on);
     overlay.classList.toggle('pe-none', !on);
@@ -389,7 +393,8 @@
     detectionActive=false; btnStart.disabled=false; btnStop.disabled=true;
     phase='idle'; roundIndex=0; revealSeq=[]; inputSeq=[]; revealLenExpected=0;
     warmupStartTs=performance.now();
-    stepCluster=null; lastTealTs=0; badPressTs=0; badPressTile=-1;
+    lastTealTs=0; badPressTs=0; badPressTile=-1;
+    winnerHist.length = 0; activeIdx = -1; activeStartTs = 0;
     guideHeader.style.display='none'; guideHeader.textContent='';
     tileMetrics=[];
     if (clearBoard){
@@ -403,7 +408,8 @@
   }
   function resetRounds(){
     roundIndex=0; revealSeq=[]; inputSeq=[]; revealLenExpected=0;
-    phase='armed'; warmupStartTs=performance.now(); stepCluster=null; lastTealTs=0;
+    phase='armed'; warmupStartTs=performance.now();
+    winnerHist.length = 0; activeIdx = -1; activeStartTs = 0; lastTealTs=0;
     guideHeader.style.display='none'; guideHeader.textContent='';
     updateStatus();
   }
@@ -474,7 +480,7 @@
     return sum/off.length;
   }
 
-  // Cursor-aware classification
+  // Cursor-aware classification with stronger teal gating
   function classifyTileRGBWithCounts(img,t){
     const sx=work.width/boardRect.w, sy=work.height/boardRect.h, off=sampleOffsets[t.index];
     const now = performance.now();
@@ -504,7 +510,7 @@
       if (isTealRGB(r,g,b)) tealHits++;
       if (isGreenRGB(r,g,b)) greenHits++;
     }
-    return { tealHits, greenHits, teal: tealHits>=3, green: greenHits>=3 };
+    return { tealHits, greenHits, teal: tealHits >= config.minTealHits, green: greenHits >= 3 };
   }
 
   function updateEnergy(tsNow,i,delta){
@@ -513,57 +519,38 @@
     const thr=(config.thrHigh-config.thrLow)*config.energyScale; return st.energySum>=thr;
   }
 
-  // Reveal clustering (single-winner + earliest-wins + adaptive split)
-  function addToCluster(tsNow, indices){
-    if (!indices || indices.length===0) return;
-    const idx = indices[0]; // single-winner per frame
-    if (!stepCluster){
-      stepCluster = { startTs: tsNow, tally: new Map(), firstSeen: new Map(), leadIdx: idx };
-    }
-    if (stepCluster.leadIdx !== idx && (tsNow - stepCluster.startTs) >= config.minStepSplitMs){
-      finalizeCluster(tsNow);
-      stepCluster = { startTs: tsNow, tally: new Map(), firstSeen: new Map(), leadIdx: idx };
-    }
-    stepCluster.tally.set(idx, (stepCluster.tally.get(idx)||0)+1);
-    if (!stepCluster.firstSeen.has(idx)) stepCluster.firstSeen.set(idx, tsNow);
-    lastTealTs = tsNow;
+  // Winner history helpers (RLE)
+  function pushWinner(ts, idx){
+    winnerHist.push({ ts, idx });
+    if (winnerHist.length > config.winnerModeWindow) winnerHist.shift();
   }
-  function finalizeCluster(tsNow){
-    if (!stepCluster) return -1;
-    let bestIdx=-1, bestTs=Infinity, bestCount=-1;
-    for (const [idx, ts] of stepCluster.firstSeen.entries()){
-      if (ts < bestTs){ bestTs = ts; bestIdx = idx; }
+  function getStableWinner(){
+    let best=-1, cnt=0;
+    const freq = new Map();
+    for (const w of winnerHist){
+      if (w.idx >= 0){ freq.set(w.idx, (freq.get(w.idx)||0)+1); }
     }
-    if (bestIdx < 0){
-      for (const [idx, count] of stepCluster.tally){
-        if (count > bestCount){ bestCount = count; bestIdx = idx; }
-      }
-    }
-    stepCluster = null;
-    if (bestIdx >= 0){
-      const st=tileState[bestIdx];
-      const within = st && ((tsNow - st.lastHotTs) < config.dedupeMs);
-      if (!within){
-        revealSeq.push(bestIdx);
-        if (st) st.lastHotTs = tsNow;
-        elRevealCount.textContent=String(revealSeq.length);
-        return bestIdx;
-      }
-    }
-    return -1;
+    for (const [i, c] of freq){ if (c > cnt){ cnt=c; best=i; } }
+    return (cnt >= Math.ceil(config.winnerModeWindow/2)) ? best : -1;
   }
-  function maybeFinalizeCluster(tsNow){
-    if (!stepCluster) return -1;
-    if ((tsNow - lastTealTs) >= config.revealStepGapMs){
-      return finalizeCluster(tsNow);
+  function winnerPersistCount(idx){
+    let c=0;
+    for (let i=winnerHist.length-1;i>=0;i--){
+      if (winnerHist[i].idx === idx) c++; else break;
     }
-    return -1;
+    return c;
   }
-  function shouldEndReveal(tsNow){
-    return (revealSeq.length>0) && !stepCluster && ((tsNow - lastTealTs) >= config.revealEndSilenceMs);
+  function pushStep(idx, tsNow){
+    if (idx < 0) return;
+    const st = tileState[idx];
+    const within = st && ((tsNow - st.lastHotTs) < config.dedupeMs);
+    if (within) return;
+    revealSeq.push(idx);
+    if (st) st.lastHotTs = tsNow;
+    elRevealCount.textContent = String(revealSeq.length);
   }
 
-  // Frame processing
+  // Frame processing with RLE step extraction
   function processFrame(tsNow){
     if (!hasBoard || !detectionActive) return;
     const img = readBoardImageData(); if (!img) return;
@@ -610,39 +597,70 @@
       if (debug.enabled) tileMetrics[i] = {avg, base:st.baseline, delta, tealHits:cls.tealHits, greenHits:cls.greenHits, teal:cls.teal, green:cls.green};
     }
 
-    const tealIndices = [];
-    const greenIndices = [];
-    if (bestTealIdx >= 0){
-      tealIndices.push(bestTealIdx);
-      tileState[bestTealIdx].refractory = config.refractoryFrames;
-    }
-    if (bestGreenIdx >= 0){
-      greenIndices.push(bestGreenIdx);
-      tileState[bestGreenIdx].refractory = config.refractoryFrames;
+    // Refractory for winners
+    if (bestTealIdx >= 0) tileState[bestTealIdx].refractory = config.refractoryFrames;
+    if (bestGreenIdx >= 0) tileState[bestGreenIdx].refractory = config.refractoryFrames;
+
+    // Maintain teal winner history (armed/reveal only)
+    if (phase==='armed' || phase==='reveal'){
+      pushWinner(tsNow, bestTealIdx);
+    } else {
+      pushWinner(tsNow, -1);
     }
 
     // FSM
     switch(phase){
-      case 'idle': break;
-
-      case 'armed':
-        if (!inWarm && config.requireColorToStartReveal && tealIndices.length>0){
-          phase='reveal';
-          revealSeq=[]; inputSeq=[];
-          stepCluster=null; lastTealTs=tsNow;
-          addToCluster(tsNow, tealIndices);
-        }
+      case 'idle':
         break;
 
+      case 'armed': {
+        const stable = getStableWinner();
+        if (!inWarm && config.requireColorToStartReveal && stable >= 0){
+          phase='reveal';
+          revealSeq=[]; inputSeq=[];
+          activeIdx = -1; activeStartTs = 0;
+          lastTealTs = tsNow;
+        }
+        break;
+      }
+
       case 'reveal': {
-        if (tealIndices.length>0) addToCluster(tsNow, tealIndices);
-        maybeFinalizeCluster(tsNow);
-        if (shouldEndReveal(tsNow)){
-          phase='waiting-input';
-          inputSeq=[]; inputStartTs=tsNow;
-          revealLenExpected = revealSeq.length;
-          guideHeader.style.display='block';
-          guideHeader.textContent = `Step 1 / ${revealLenExpected}`;
+        const stable = getStableWinner();
+
+        if (stable >= 0){
+          lastTealTs = tsNow;
+
+          if (activeIdx < 0){
+            if (winnerPersistCount(stable) >= config.stepPersistFrames){
+              activeIdx = stable;
+              activeStartTs = tsNow;
+            }
+          } else if (stable !== activeIdx){
+            const persisted = winnerPersistCount(stable) >= config.stepPersistFrames;
+            const dwelt = (tsNow - activeStartTs) >= config.minSwitchGapMs;
+            if (persisted && dwelt){
+              pushStep(activeIdx, tsNow);
+              activeIdx = stable;
+              activeStartTs = tsNow;
+            }
+          }
+        }
+
+        // End-of-reveal silence
+        if ((tsNow - lastTealTs) >= config.revealEndSilenceMs){
+          if (activeIdx >= 0){
+            pushStep(activeIdx, tsNow);
+            activeIdx = -1;
+          }
+          if (revealSeq.length > 0){
+            phase='waiting-input';
+            inputSeq=[]; inputStartTs=tsNow;
+            revealLenExpected = revealSeq.length;
+            guideHeader.style.display='block';
+            guideHeader.textContent = `Step 1 / ${revealLenExpected}`;
+          } else {
+            phase='rearming'; rearmTs=tsNow;
+          }
         }
         break;
       }
@@ -651,16 +669,16 @@
         const expected = revealSeq[inputSeq.length] ?? -1;
         const inputElapsed = tsNow - inputStartTs;
 
-        if (!inWarm && greenIndices.length>0){
-          if (greenIndices.includes(expected)){
+        if (!inWarm && bestGreenIdx >= 0){
+          if (bestGreenIdx === expected){
             const within = (tsNow - tileState[expected].lastHotTs) < config.dedupeMs;
             if (!within){
               inputSeq.push(expected);
               tileState[expected].lastHotTs = tsNow;
               elInputCount.textContent=String(inputSeq.length);
             }
-          } else {
-            badPressTile = greenIndices[0];
+          } else if (bestGreenIdx >= 0) {
+            badPressTile = bestGreenIdx;
             badPressTs = tsNow;
           }
         }
@@ -670,16 +688,22 @@
           phase='rearming'; rearmTs=tsNow;
           revealSeq=[]; inputSeq=[]; revealLenExpected=0;
           guideHeader.style.display='none';
-        }else if (inputElapsed >= config.inputTimeoutMs){
+        } else if (inputElapsed >= config.inputTimeoutMs){
           phase='rearming'; rearmTs=tsNow; revealSeq=[]; inputSeq=[]; revealLenExpected=0; guideHeader.style.display='none';
         }
         break;
       }
 
       case 'rearming':
-        if (tsNow - rearmTs >= config.rearmDelayMs){ phase='armed'; warmupStartTs=tsNow; }
+        if (tsNow - rearmTs >= config.rearmDelayMs){
+          phase='armed'; warmupStartTs=tsNow;
+          winnerHist.length = 0;
+          activeIdx = -1; activeStartTs = 0;
+        }
         break;
     }
+
+    updateStatus();
   }
 
   // Overlay drawing (includes debug overlays)
@@ -703,7 +727,7 @@
       for (const t of tileRects){ ctxOv.strokeRect(t.x*sx, t.y*sy, t.w*sx, t.h*sy); }
       ctxOv.restore();
 
-      // Debug overlay
+      // Debug overlay: heatmap / samples / labels
       if (debug.enabled && tileMetrics.length===tileRects.length){
         if (debug.overlayHeatmap){
           for (let i=0;i<tileRects.length;i++){
@@ -746,7 +770,7 @@
           ctxOv.restore();
         }
 
-        // Cursor mask ring for tuning
+        // Show cursor mask ring for tuning
         if (config.ignoreNearMouse && lastMouse.inBoard){
           const rwVideo = config.cursorMaskRadiusPx * (boardRect.w/work.width);
           const rx = rwVideo * sx, ry = rwVideo * sy;
@@ -781,6 +805,7 @@
           ctxOv.strokeRect(x,y,w,h);
         }
       }
+      // wrong press flash
       if (badPressTile>=0 && (now - badPressTs) < 300){
         const t = tileRects[badPressTile];
         if (t){
@@ -817,7 +842,7 @@
     }
   }
 
-  // Debug viewer
+  // Debug viewer (tile-level render)
   function drawDebugViewer(){
     if (!debug.enabled || !hasBoard || tileMetrics.length!==tileRects.length) {
       ctxDbg.fillStyle='#0b1220'; ctxDbg.fillRect(0,0,debugView.width,debugView.height);
@@ -986,9 +1011,11 @@
   function buildTimingPanel(){
     timingGrid.innerHTML='';
     const fields = [
-      {key:'revealStepGapMs', label:'Step Gap (ms)', step:10, min:80, max:400},
       {key:'revealEndSilenceMs', label:'Reveal End Silence (ms)', step:25, min:300, max:2000},
-      {key:'minStepSplitMs', label:'Min Split (ms)', step:5, min:40, max:200},
+      {key:'winnerModeWindow', label:'Winner Mode Window (frames)', step:1, min:1, max:9},
+      {key:'stepPersistFrames', label:'Step Persist (frames)', step:1, min:1, max:6},
+      {key:'minSwitchGapMs', label:'Min Switch Gap (ms)', step:5, min:40, max:200},
+      {key:'minTealHits', label:'Min Teal Hits (0–25)', step:1, min:1, max:25},
       {key:'dedupeMs', label:'Pulse Dedupe (ms)', step:10, min:60, max:600},
       {key:'belowLowFramesToBypass', label:'Below-Low Frames to Repeat', step:1, min:0, max:12},
       {key:'holdFrames', label:'Hold Frames', step:1, min:0, max:8},
@@ -1006,7 +1033,7 @@
       if (f.max!=null) inp.max=String(f.max);
       inp.addEventListener('change', ()=>{
         const v=Number(inp.value); if (!Number.isFinite(v)) return;
-        config[f.key] = (['holdFrames','refractoryFrames','belowLowFramesToBypass'].includes(f.key)) ? Math.round(v) : v;
+        config[f.key] = (['holdFrames','refractoryFrames','belowLowFramesToBypass','winnerModeWindow','stepPersistFrames','minTealHits'].includes(f.key)) ? Math.round(v) : v;
       });
       wrap.appendChild(lab); wrap.appendChild(inp);
       timingGrid.appendChild(wrap);
@@ -1081,6 +1108,7 @@
     if (!stream){ alert('Start capture first.'); return; }
     if (!hasBoard){ alert('Set the board first.'); return; }
     detectionActive=true; phase='armed'; warmupStartTs=performance.now();
+    winnerHist.length = 0; activeIdx = -1; activeStartTs = 0;
     btnStart.disabled=true; btnStop.disabled=false; updateStatus();
   });
   btnStop.addEventListener('click', ()=>{ detectionActive=false; phase='idle'; btnStart.disabled=false; btnStop.disabled=true; updateStatus(); });
@@ -1110,13 +1138,13 @@
     if (!running) return;
     const tsNow=performance.now();
     framesInBucket++; if (tsNow-lastFPSTs>=1000){ elFPS.textContent=String(framesInBucket); framesInBucket=0; lastFPSTs=tsNow; }
-    if (detectionActive){ processFrame(tsNow); updateStatus(); }
+    if (detectionActive){ processFrame(tsNow); }
     requestAnimationFrame(videoLoopRaf);
   }
   function videoLoopVFC(now){
     if (!running) return;
     framesInBucket++; if (now-lastFPSTs>=1000){ elFPS.textContent=String(framesInBucket); framesInBucket=0; lastFPSTs=now; }
-    if (detectionActive){ processFrame(now); updateStatus(); }
+    if (detectionActive){ processFrame(now); }
     video.requestVideoFrameCallback(videoLoopVFC);
   }
   function startLoops(){
@@ -1124,6 +1152,18 @@
     requestAnimationFrame(uiLoop);
     if (typeof video.requestVideoFrameCallback==='function'){ video.requestVideoFrameCallback(videoLoopVFC); }
     else { requestAnimationFrame(videoLoopRaf); }
+  }
+
+  // Calibration
+  function calibrateBaselines(){
+    if (!hasBoard) return;
+    const data = readBoardImageData(); if (!data) return;
+    for (let i=0;i<tileRects.length;i++){
+      const t=tileRects[i]; const avg=avgTileLuminance(data,t);
+      const st=tileState[i]; st.baseline=avg; st.delta=0; st.energyBuf.fill(0); st.energySum=0; st.eIdx=0;
+      st.hold=0; st.refractory=0; st.lowCount=0; st.belowLow=true; st.lastHotTs=0;
+    }
+    warmupStartTs = performance.now();
   }
 
   // Commit board rect -> tiles
@@ -1136,6 +1176,14 @@
     hasBoard=true; ensureTileState(); calibrateBaselines();
     btnEditBoard.disabled=false; btnClearBoard.disabled=false;
   }
+
+  // Init
+  updateGridFromDifficulty();
+  buildTimingPanel();
+  resetDetectionState({clearBoard:true});
+
+  const ro = new ResizeObserver(()=> updateOverlayBox());
+  ro.observe(previewWrap);
 
 })();
 </script>
