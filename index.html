@@ -53,8 +53,8 @@
   video{max-width:100%; max-height:100%; border-radius:10px; border:1px solid rgba(80,130,200,.25); background:#000}
   canvas.overlay{
     position:absolute;
-    z-index:3;           /* ensure above the video and guide */
-    touch-action:none;   /* prevent touch gestures from hijacking pointer */
+    z-index:3;           /* above video */
+    touch-action:none;   /* avoid touch gestures eating pointer events */
   }
   .overlay.pe-none{pointer-events:none}
   .overlay.pe-auto{pointer-events:auto}
@@ -151,6 +151,13 @@
               <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="ckDbgSamples" /> Overlay Samples</label>
               <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="ckDbgLabels" /> Overlay Labels</label>
             </div>
+            <div class="row" style="gap:10px;align-items:center;margin-top:6px">
+              <label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="ckIgnoreCursor" checked /> Ignore Cursor</label>
+              <label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="ckIgnoreNearMouse" checked /> Mask Near Mouse</label>
+              <label style="margin:0;display:flex;align-items:center;gap:6px">Radius
+                <input type="number" id="inpCursorRadius" min="4" max="40" step="1" value="12" style="width:72px" />
+              </label>
+            </div>
             <div class="row" style="align-items:center">
               <label style="margin:0">Viewer</label>
               <select id="selDbgView">
@@ -221,6 +228,9 @@
   const ckDbgHeat = document.getElementById('ckDbgHeat');
   const ckDbgSamples = document.getElementById('ckDbgSamples');
   const ckDbgLabels = document.getElementById('ckDbgLabels');
+  const ckIgnoreCursor = document.getElementById('ckIgnoreCursor');
+  const ckIgnoreNearMouse = document.getElementById('ckIgnoreNearMouse');
+  const inpCursorRadius = document.getElementById('inpCursorRadius');
   const selDbgView = document.getElementById('selDbgView');
   const debugView = document.getElementById('debugView');
   const ctxDbg = debugView.getContext('2d', { alpha: false });
@@ -232,18 +242,25 @@
   const elInputCount = document.getElementById('inputCount');
   const elGridSize = document.getElementById('gridSize');
 
-  // Stable defaults + Min Split (for ordering)
+  // Stable defaults + Min Split (for ordering) + Cursor suppression
   const defaultConfig = {
     thrHigh:10, thrLow:6, holdFrames:1, refractoryFrames:6, emaAlpha:0.20,
     energyWindow:5, energyScale:2.5, warmupMs:450, surgeRejectPct:0.4,
     revealStepGapMs:140,
     revealEndSilenceMs:700,
-    minStepSplitMs:90,          // NEW: adaptive split threshold
+    minStepSplitMs:90,          // adaptive split threshold
     dedupeMs:160,
     belowLowFramesToBypass:2,
     inputTimeoutMs:12000,
     rearmDelayMs:120,
-    requireColorToStartReveal:true
+    requireColorToStartReveal:true,
+    // Cursor suppression
+    ignoreCursor:true,
+    ignoreNearMouse:true,
+    cursorWhiteSatMax:0.16,
+    cursorWhiteVMin:0.88,
+    cursorMaskRadiusPx:12,     // in work-canvas pixels
+    cursorMaskRecentMs:120
   };
   const config = { ...defaultConfig };
 
@@ -255,6 +272,36 @@
     overlayLabels: false,
     view: 'raw'
   };
+
+  // Mouse tracking for cursor masking (overlay + work coords)
+  let lastMouse = { xOverlay:-1, yOverlay:-1, xWork:-1, yWork:-1, inBoard:false, ts:0 };
+  function updateLastMouseFromEvent(e){
+    const now = performance.now();
+    const cr = overlay.getBoundingClientRect();
+    const xo = e.clientX - cr.left;
+    const yo = e.clientY - cr.top;
+
+    // overlay -> video px
+    const sxV = (video.videoWidth||1) / overlay.width;
+    const syV = (video.videoHeight||1) / overlay.height;
+    const xv = xo * sxV, yv = yo * syV;
+
+    // video -> board -> work
+    let inBoard=false, xw=-1, yw=-1;
+    if (boardRect && work.width>0 && work.height>0){
+      const xb = xv - boardRect.x, yb = yv - boardRect.y;
+      if (xb>=0 && yb>=0 && xb<=boardRect.w && yb<=boardRect.h){
+        const sxW = work.width / boardRect.w;
+        const syW = work.height / boardRect.h;
+        xw = xb * sxW; yw = yb * syW;
+        inBoard = true;
+      }
+    }
+    lastMouse = { xOverlay:xo, yOverlay:yo, xWork:xw, yWork:yw, inBoard, ts:now };
+  }
+  previewWrap.addEventListener('pointermove', updateLastMouseFromEvent, { passive:true });
+  previewWrap.addEventListener('pointerenter', updateLastMouseFromEvent, { passive:true });
+  previewWrap.addEventListener('pointerleave', ()=>{ lastMouse.inBoard=false; }, { passive:true });
 
   // Defaults
   let difficulty='expert', rows=6, cols=6;
@@ -389,9 +436,22 @@
     });
   }
 
-  // Color heuristics (stable)
+  // Color heuristics
   function isTealRGB(r,g,b){ return g>=96 && b>=96 && g>=1.25*r && b>=1.15*r && g<=1.6*b; }
   function isGreenRGB(r,g,b){ return g>=110 && g>=1.4*r && g>=1.25*b; }
+  function rgbToHsv(r,g,b){
+    r/=255; g/=255; b/=255;
+    const max=Math.max(r,g,b), min=Math.min(r,g,b), d=max-min;
+    let h=0;
+    if (d!==0){
+      if (max===r) h=((g-b)/d)%6;
+      else if (max===g) h=(b-r)/d+2;
+      else h=(r-g)/d+4;
+      h*=60; if (h<0) h+=360;
+    }
+    const s=max===0?0:d/max, v=max;
+    return [h,s,v];
+  }
 
   function readBoardImageData(){
     if (!boardRect || !video.videoWidth) return null;
@@ -409,18 +469,45 @@
     }
     return sum/off.length;
   }
+
+  // Cursor-aware classification
   function classifyTileRGBWithCounts(img,t){
     const sx=work.width/boardRect.w, sy=work.height/boardRect.h, off=sampleOffsets[t.index];
+    const now = performance.now();
+    const useNearMouse = config.ignoreNearMouse && lastMouse.inBoard && ((now - lastMouse.ts) <= config.cursorMaskRecentMs);
+    const r2 = config.cursorMaskRadiusPx * config.cursorMaskRadiusPx;
+
     let tealHits=0, greenHits=0;
     for (let i=0;i<off.length;i++){
-      const ox=off[i][0]*sx + (t.x-boardRect.x)*sx, oy=off[i][1]*sy + (t.y-boardRect.y)*sy;
+      // work-space coords for this sample
+      const ox=off[i][0]*sx + (t.x-boardRect.x)*sx;
+      const oy=off[i][1]*sy + (t.y-boardRect.y)*sy;
+
+      // Optional near-mouse mask
+      if (useNearMouse){
+        const dx = ox - lastMouse.xWork;
+        const dy = oy - lastMouse.yWork;
+        if ((dx*dx + dy*dy) <= r2) continue;
+      }
+
       const xi=Math.max(0,Math.min(work.width-1,ox|0)), yi=Math.max(0,Math.min(work.height-1,oy|0));
       const idx=(yi*work.width+xi)*4, r=img.data[idx], g=img.data[idx+1], b=img.data[idx+2];
+
+      // Optional near-white (cursor-like) suppression
+      if (config.ignoreCursor){
+        const [h,s,v]=rgbToHsv(r,g,b);
+        if (s <= config.cursorWhiteSatMax && v >= config.cursorWhiteVMin){
+          continue; // skip likely pointer/white glare
+        }
+      }
+
+      // Existing color hits
       if (isTealRGB(r,g,b)) tealHits++;
       if (isGreenRGB(r,g,b)) greenHits++;
     }
     return { tealHits, greenHits, teal: tealHits>=3, green: greenHits>=3 };
   }
+
   function updateEnergy(tsNow,i,delta){
     const st=tileState[i]; const v=Math.max(0, delta-config.thrLow);
     const old=st.energyBuf[st.eIdx]; st.energyBuf[st.eIdx]=v; st.eIdx=(st.eIdx+1)%config.energyWindow; st.energySum+=v-old;
@@ -445,7 +532,7 @@
   }
   function finalizeCluster(tsNow){
     if (!stepCluster) return -1;
-    // Earliest-wins fallback to most-votes
+    // Earliest-wins, fallback to most-votes
     let bestIdx=-1, bestTs=Infinity, bestCount=-1;
     for (const [idx, ts] of stepCluster.firstSeen.entries()){
       if (ts < bestTs){ bestTs = ts; bestIdx = idx; }
@@ -538,7 +625,7 @@
       tileState[bestGreenIdx].refractory = config.refractoryFrames;
     }
 
-    // FSM (stable + clustering changes)
+    // FSM
     switch(phase){
       case 'idle': break;
 
@@ -660,6 +747,21 @@
             ctxOv.fillStyle='#cfe6ff';
             ctxOv.fillText(lbl, x, y);
           }
+          ctxOv.restore();
+        }
+
+        // Show cursor mask ring for tuning
+        if (config.ignoreNearMouse && lastMouse.inBoard){
+          // convert work px radius -> video px -> overlay px
+          const rwVideo = config.cursorMaskRadiusPx * (boardRect.w/work.width);
+          const rx = rwVideo * sx, ry = rwVideo * sy;
+          ctxOv.save();
+          ctxOv.strokeStyle = 'rgba(255,0,200,0.75)';
+          ctxOv.setLineDash([6,4]);
+          ctxOv.lineWidth = 2;
+          ctxOv.beginPath();
+          ctxOv.ellipse(lastMouse.xOverlay, lastMouse.yOverlay, rx, ry, 0, 0, Math.PI*2);
+          ctxOv.stroke();
           ctxOv.restore();
         }
       }
@@ -887,10 +989,10 @@
 
   btnSetBoard.addEventListener('click', ()=>{
     if (!video.videoWidth){ alert('Start capture first.'); return; }
-    updateOverlayBox();         // ensure overlay matches video
+    updateOverlayBox();
     editor.mode='draw';
     editor.rect=null;
-    setOverlayPointer(true);    // enable clicks + crosshair
+    setOverlayPointer(true);
     btnDoneEdit.disabled=true;
     drawOverlay();
   });
@@ -934,59 +1036,15 @@
   ckDbgHeat.addEventListener('change', ()=>{ debug.overlayHeatmap = ckDbgHeat.checked; });
   ckDbgSamples.addEventListener('change', ()=>{ debug.overlaySamples = ckDbgSamples.checked; });
   ckDbgLabels.addEventListener('change', ()=>{ debug.overlayLabels = ckDbgLabels.checked; });
+  ckIgnoreCursor.addEventListener('change', ()=>{ config.ignoreCursor = ckIgnoreCursor.checked; });
+  ckIgnoreNearMouse.addEventListener('change', ()=>{ config.ignoreNearMouse = ckIgnoreNearMouse.checked; });
+  inpCursorRadius.addEventListener('change', ()=>{ const v=Number(inpCursorRadius.value); if (Number.isFinite(v)) config.cursorMaskRadiusPx = Math.max(4, Math.min(40, Math.round(v))); });
   selDbgView.addEventListener('change', ()=>{ debug.view = selDbgView.value; });
 
-  // Editor pointer handlers
-  overlay.addEventListener('pointerdown', (e)=>{
-    if (editor.mode==='idle') return;
-    overlay.setPointerCapture(e.pointerId);
-    const cr=overlay.getBoundingClientRect();
-    const x=e.clientX-cr.left, y=e.clientY-cr.top;
-    editor.start={x,y};
-    if (editor.mode==='draw'){ editor.rect={x,y,w:0,h:0}; }
-    else if (editor.mode==='edit'){
-      const h=hitTestHandle(x,y,editor.rect,editor.handleSize);
-      if (h){ editor.activeHandle=h; editor.rectStart={...editor.rect}; }
-      else if (pointInRect(x,y,editor.rect)){ editor.activeHandle='move'; editor.rectStart={...editor.rect}; }
-      else { editor.activeHandle=null; }
-    }
-    drawOverlay();
-  });
-  overlay.addEventListener('pointermove', (e)=>{
-    if (editor.mode==='idle') return;
-    const cr=overlay.getBoundingClientRect();
-    const x=e.clientX-cr.left, y=e.clientY-cr.top;
-    const dx=x-editor.start.x, dy=y-editor.start.y;
-    const maxW=overlay.width, maxH=overlay.height;
-    if (editor.mode==='draw' && editor.rect){
-      editor.rect = clampRect(editor.start.x,editor.start.y,dx,dy,maxW,maxH);
-    }else if (editor.mode==='edit' && editor.rect && editor.activeHandle){
-      if (editor.activeHandle==='move') editor.rect = squareMove(editor.rectStart,dx,dy,maxW,maxH);
-      else editor.rect = squareResizeFromCorner(editor.rectStart,editor.activeHandle,dx,dy,maxW,maxH);
-    }
-    drawOverlay();
-  });
-  overlay.addEventListener('pointerup', ()=>{
-    if (editor.mode==='draw' && editor.rect){
-      editor.rect = squareFromRectCentered(editor.rect, overlay.width, overlay.height);
-      editor.mode='edit'; btnDoneEdit.disabled=false; drawOverlay();
-    }else if (editor.mode==='edit'){ editor.activeHandle=null; drawOverlay(); }
-  });
-  overlay.addEventListener('pointercancel', ()=>{ editor.activeHandle=null; drawOverlay(); });
-  window.addEventListener('keydown', (e)=>{
-    if (editor.mode!=='edit' || !editor.rect) return;
-    const step=e.shiftKey?10:1;
-    if (e.key==='ArrowLeft') editor.rect=squareMove(editor.rect,-step,0,overlay.width,overlay.height);
-    else if (e.key==='ArrowRight') editor.rect=squareMove(editor.rect,step,0,overlay.width,overlay.height);
-    else if (e.key==='ArrowUp') editor.rect=squareMove(editor.rect,0,-step,overlay.width,overlay.height);
-    else if (e.key==='ArrowDown') editor.rect=squareMove(editor.rect,0,step,overlay.width,overlay.height);
-    else if (e.key==='Escape'){
-      editor.mode='idle';
-      setOverlayPointer(false);
-      btnDoneEdit.disabled=true;
-    }
-    drawOverlay();
-  });
+  // Ensure UI reflects defaults
+  ckIgnoreCursor.checked = config.ignoreCursor;
+  ckIgnoreNearMouse.checked = config.ignoreNearMouse;
+  inpCursorRadius.value = String(config.cursorMaskRadiusPx);
 
   // Timing panel
   function buildTimingPanel(){
@@ -994,7 +1052,7 @@
     const fields = [
       {key:'revealStepGapMs', label:'Step Gap (ms)', step:10, min:80, max:400},
       {key:'revealEndSilenceMs', label:'Reveal End Silence (ms)', step:25, min:300, max:2000},
-      {key:'minStepSplitMs', label:'Min Split (ms)', step:5, min:40, max:200},     // NEW
+      {key:'minStepSplitMs', label:'Min Split (ms)', step:5, min:40, max:200},
       {key:'dedupeMs', label:'Pulse Dedupe (ms)', step:10, min:60, max:600},
       {key:'belowLowFramesToBypass', label:'Below-Low Frames to Repeat', step:1, min:0, max:12},
       {key:'holdFrames', label:'Hold Frames', step:1, min:0, max:8},
