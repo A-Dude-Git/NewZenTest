@@ -8,7 +8,7 @@
   :root{
     --navy-900:#0b1220; --navy-850:#0f1a2b; --navy-800:#122036; --navy-750:#152744;
     --blue-500:#3aa0ff; --blue-400:#58b0ff; --blue-300:#8cc8ff;
-    --green-400:#38d677; --red-400:#ef4444;
+    --green-400:#38d677; --red-400:#ef4444; --pink-400:#ff5ad6;
     --text-100:#e6eef7; --text-200:#c3d4ea; --muted-400:#7f9bb9;
     --card-radius:12px; --shadow:0 6px 18px rgba(0,0,0,.35); --mono:ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
   }
@@ -66,6 +66,7 @@
   .divider{height:1px; background:linear-gradient(90deg, transparent, rgba(130,160,210,.25), transparent); margin:8px 0}
   .badge{display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; border:1px solid rgba(90,140,200,.25); color:var(--text-200); font-size:12px; background:linear-gradient(180deg, var(--navy-800), var(--navy-850))}
   .badge .dot{width:8px; height:8px; border-radius:50%; background:var(--blue-500)}
+  .badge.lowfps{border-color:rgba(255,90,214,.6); color:#ffc8f0}
   .legend{display:flex; gap:10px; flex-wrap:wrap; margin-top:6px; color:var(--muted-400); font-size:12px}
   .legend span{display:inline-flex; align-items:center; gap:6px}
   .legend .teal{width:10px; height:10px; background:#2dd4d4; border-radius:2px}
@@ -186,6 +187,7 @@
             <div>Reveal: <strong id="revealCount">0</strong></div>
             <div>Input: <strong id="inputCount">0</strong></div>
             <div>Grid: <strong id="gridSize">6×6</strong></div>
+            <div id="lowfpsBadge" class="badge lowfps" style="display:none">Low FPS mode</div>
           </div>
         </div>
       </div>
@@ -243,11 +245,12 @@
   const elRevealCount = document.getElementById('revealCount');
   const elInputCount = document.getElementById('inputCount');
   const elGridSize = document.getElementById('gridSize');
+  const lowfpsBadge = document.getElementById('lowfpsBadge');
 
-  // Config: RLE step extraction + cursor suppression
+  // Config (with defaults for normal FPS)
   const defaultConfig = {
     thrHigh:10, thrLow:6, holdFrames:1, refractoryFrames:6, emaAlpha:0.20,
-    energyWindow:5, energyScale:2.5, warmupMs:450, surgeRejectPct:0.4,
+    energyWindow:5, energyScale:2.5, warmupMs:450,
     revealEndSilenceMs:700,
     dedupeMs:160,
     belowLowFramesToBypass:2,
@@ -264,19 +267,16 @@
     ignoreNearMouse:true,
     cursorWhiteSatMax:0.16,
     cursorWhiteVMin:0.88,
-    cursorMaskRadiusPx:12,   // work-canvas pixels
+    cursorMaskRadiusPx:12,
     cursorMaskRecentMs:120
   };
   const config = { ...defaultConfig };
 
+  // Effective (auto-adapted) knobs for this second
+  const eff = { winnerModeWindow:config.winnerModeWindow, stepPersistFrames:config.stepPersistFrames, minSwitchGapMs:config.minSwitchGapMs, minTealHits:config.minTealHits, energyWindow:config.energyWindow };
+
   // Debug state
-  const debug = {
-    enabled: false,
-    overlayHeatmap: false,
-    overlaySamples: false,
-    overlayLabels: false,
-    view: 'raw'
-  };
+  const debug = { enabled:false, overlayHeatmap:false, overlaySamples:false, overlayLabels:false, view:'raw' };
 
   // Mouse tracking (for cursor mask)
   let lastMouse = { xOverlay:-1, yOverlay:-1, xWork:-1, yWork:-1, inBoard:false, ts:0 };
@@ -316,37 +316,64 @@
   let tileRects=[];
 
   const work = document.createElement('canvas'); // board-only frame
-  const wctx = work.getContext('2d', { willReadFrequently:true });
+  let wctx = work.getContext('2d', { willReadFrequently:true });
 
   let tileState=[], sampleOffsets=[];
   let tileMetrics=[]; // per-tile debug metrics
 
   // FSM
-  let phase='idle'; // 'idle'|'armed'|'reveal'|'waiting-input'|'rearming'
+  let phase='idle';
   let roundIndex=0;
-  let revealSeq=[];       // steps captured
-  let inputSeq=[];        // accepted inputs (strict order)
+  let revealSeq=[];
+  let inputSeq=[];
   let revealLenExpected=0;
 
   // Timing marks
   let warmupStartTs=0, inputStartTs=0, rearmTs=0;
 
-  // RLE winner tracking
-  const winnerHist = []; // last N winners (teal)
+  // Winner tracking (RLE)
+  const winnerHist = [];
   let activeIdx = -1;
   let activeStartTs = 0;
   let lastTealTs=0;
 
-  // FPS
-  let lastFPSTs=0, framesInBucket=0;
+  // FPS + adaptation
+  let lastFPSTs=0, framesInBucket=0, measuredFps=0;
+
+  function applyAdaptiveKnobs(){
+    // Decide mode based on measuredFps
+    const f = measuredFps;
+    // Reset to defaults first
+    eff.winnerModeWindow = config.winnerModeWindow;
+    eff.stepPersistFrames = config.stepPersistFrames;
+    eff.minSwitchGapMs = config.minSwitchGapMs;
+    eff.minTealHits = config.minTealHits;
+    eff.energyWindow = config.energyWindow;
+
+    if (f < 10){
+      eff.winnerModeWindow = 1;
+      eff.stepPersistFrames = 1;
+      eff.minSwitchGapMs = 0;
+      eff.minTealHits = Math.max(3, Math.min(6, config.minTealHits)); // modest reduction
+      eff.energyWindow = Math.max(3, Math.min(5, config.energyWindow));
+      lowfpsBadge.style.display='inline-flex';
+    } else if (f < 20){
+      eff.winnerModeWindow = Math.min(2, config.winnerModeWindow);
+      eff.stepPersistFrames = 1;
+      eff.minSwitchGapMs = Math.min(60, config.minSwitchGapMs);
+      eff.minTealHits = Math.max(3, Math.min(5, config.minTealHits));
+      eff.energyWindow = Math.max(4, Math.min(5, config.energyWindow));
+      lowfpsBadge.style.display='inline-flex';
+    } else {
+      lowfpsBadge.style.display='none';
+    }
+  }
 
   // Wrong press flash
   let badPressTs=0, badPressTile=-1;
 
-  // Editor
+  // Editor + pointer
   const editor = { mode:'idle', rect:null, activeHandle:null, start:{x:0,y:0}, rectStart:null, handleSize:12 };
-
-  // Press/drag state for board drawing/editing
   const pointerState = { active:false, id:-1 };
 
   // Utils
@@ -373,7 +400,6 @@
     overlay.style.cursor = on ? 'crosshair' : 'default';
   }
 
-  // Grid + UI
   function updateGridFromDifficulty(){
     switch(difficulty){
       case 'easy': rows=4; cols=4; break;
@@ -431,7 +457,7 @@
     return out;
   }
 
-  // Sampling layout
+  // Sampling layout + state
   function ensureTileState(){
     tileState = tileRects.map(()=>({
       baseline:0, delta:0,
@@ -446,7 +472,7 @@
     });
   }
 
-  // Color heuristics
+  // Colors
   function isTealRGB(r,g,b){ return g>=96 && b>=96 && g>=1.25*r && b>=1.15*r && g<=1.6*b; }
   function isGreenRGB(r,g,b){ return g>=110 && g>=1.4*r && g>=1.25*b; }
   function rgbToHsv(r,g,b){
@@ -480,7 +506,7 @@
     return sum/off.length;
   }
 
-  // Cursor-aware classification with stronger teal gating
+  // Cursor-aware classification (returns hit counts; gating applied later with eff.minTealHits)
   function classifyTileRGBWithCounts(img,t){
     const sx=work.width/boardRect.w, sy=work.height/boardRect.h, off=sampleOffsets[t.index];
     const now = performance.now();
@@ -510,28 +536,37 @@
       if (isTealRGB(r,g,b)) tealHits++;
       if (isGreenRGB(r,g,b)) greenHits++;
     }
-    return { tealHits, greenHits, teal: tealHits >= config.minTealHits, green: greenHits >= 3 };
+    return { tealHits, greenHits };
   }
 
   function updateEnergy(tsNow,i,delta){
     const st=tileState[i]; const v=Math.max(0, delta-config.thrLow);
+    // Use effective energyWindow without realloc: treat buffer as ring but clamp sum horizon via coeff
+    if (st.energyBuf.length !== config.energyWindow){
+      st.energyBuf = new Float32Array(config.energyWindow);
+      st.energySum = 0; st.eIdx = 0;
+    }
     const old=st.energyBuf[st.eIdx]; st.energyBuf[st.eIdx]=v; st.eIdx=(st.eIdx+1)%config.energyWindow; st.energySum+=v-old;
     const thr=(config.thrHigh-config.thrLow)*config.energyScale; return st.energySum>=thr;
   }
 
-  // Winner history helpers (RLE)
+  // Winner history helpers (RLE) using effective window
   function pushWinner(ts, idx){
     winnerHist.push({ ts, idx });
-    if (winnerHist.length > config.winnerModeWindow) winnerHist.shift();
+    // Keep last max(5, eff.winnerModeWindow) to allow quick adjustment
+    const keep = Math.max(5, eff.winnerModeWindow);
+    while (winnerHist.length > keep) winnerHist.shift();
   }
   function getStableWinner(){
-    let best=-1, cnt=0;
-    const freq = new Map();
-    for (const w of winnerHist){
-      if (w.idx >= 0){ freq.set(w.idx, (freq.get(w.idx)||0)+1); }
+    // use only the last eff.winnerModeWindow entries
+    const n = Math.min(eff.winnerModeWindow, winnerHist.length);
+    if (n === 0) return -1;
+    const freq = new Map(); let best=-1, cnt=0;
+    for (let i=winnerHist.length-n; i<winnerHist.length; i++){
+      const idx = winnerHist[i].idx;
+      if (idx >= 0){ const c=(freq.get(idx)||0)+1; freq.set(idx,c); if (c>cnt){cnt=c; best=idx;} }
     }
-    for (const [i, c] of freq){ if (c > cnt){ cnt=c; best=i; } }
-    return (cnt >= Math.ceil(config.winnerModeWindow/2)) ? best : -1;
+    return (cnt >= Math.ceil(n/2)) ? best : (n===1 ? winnerHist[winnerHist.length-1].idx : -1);
   }
   function winnerPersistCount(idx){
     let c=0;
@@ -550,15 +585,17 @@
     elRevealCount.textContent = String(revealSeq.length);
   }
 
-  // Frame processing with RLE step extraction
+  // Frame processing with RLE and adaptive thresholds
   function processFrame(tsNow){
     if (!hasBoard || !detectionActive) return;
     const img = readBoardImageData(); if (!img) return;
 
+    // apply adaptation based on last measuredFps
+    applyAdaptiveKnobs();
+
     const inWarm = (tsNow - warmupStartTs) < config.warmupMs;
     if (debug.enabled){ tileMetrics.length = tileRects.length; }
 
-    // winners for this frame
     let bestTealIdx = -1, bestTealScore = -1;
     let bestGreenIdx = -1, bestGreenScore = -1;
 
@@ -572,7 +609,7 @@
       if (inWarm){
         st.belowLow = delta<=config.thrLow;
         st.hold=(delta>=config.thrHigh)?Math.min(config.holdFrames, st.hold+1):0;
-        if (debug.enabled) tileMetrics[i] = {avg, base:st.baseline, delta, tealHits:cls.tealHits, greenHits:cls.greenHits, teal:cls.teal, green:cls.green};
+        if (debug.enabled) tileMetrics[i] = {avg, base:st.baseline, delta, tealHits:cls.tealHits, greenHits:cls.greenHits, teal:cls.tealHits>=eff.minTealHits, green:cls.greenHits>=3};
         continue;
       }
 
@@ -585,33 +622,25 @@
       const canTrigger = (st.refractory===0) || canRepeatBypass;
 
       if (canTrigger && (byHold||byEnergy)){
-        if ((phase==='armed' || phase==='reveal') && cls.teal){
+        if ((phase==='armed' || phase==='reveal') && cls.tealHits>=eff.minTealHits){
           const score = cls.tealHits*10 + Math.max(0, delta);
           if (score > bestTealScore){ bestTealScore=score; bestTealIdx=i; }
-        }else if (phase==='waiting-input' && cls.green){
+        }else if (phase==='waiting-input' && cls.greenHits>=3){
           const score = cls.greenHits*10 + Math.max(0, delta);
           if (score > bestGreenScore){ bestGreenScore=score; bestGreenIdx=i; }
         }
       }
 
-      if (debug.enabled) tileMetrics[i] = {avg, base:st.baseline, delta, tealHits:cls.tealHits, greenHits:cls.greenHits, teal:cls.teal, green:cls.green};
+      if (debug.enabled) tileMetrics[i] = {avg, base:st.baseline, delta, tealHits:cls.tealHits, greenHits:cls.greenHits, teal:cls.tealHits>=eff.minTealHits, green:cls.greenHits>=3};
     }
 
-    // Refractory for winners
     if (bestTealIdx >= 0) tileState[bestTealIdx].refractory = config.refractoryFrames;
     if (bestGreenIdx >= 0) tileState[bestGreenIdx].refractory = config.refractoryFrames;
 
-    // Maintain teal winner history (armed/reveal only)
-    if (phase==='armed' || phase==='reveal'){
-      pushWinner(tsNow, bestTealIdx);
-    } else {
-      pushWinner(tsNow, -1);
-    }
+    if (phase==='armed' || phase==='reveal'){ pushWinner(tsNow, bestTealIdx); } else { pushWinner(tsNow, -1); }
 
-    // FSM
     switch(phase){
-      case 'idle':
-        break;
+      case 'idle': break;
 
       case 'armed': {
         const stable = getStableWinner();
@@ -626,32 +655,23 @@
 
       case 'reveal': {
         const stable = getStableWinner();
-
         if (stable >= 0){
           lastTealTs = tsNow;
-
           if (activeIdx < 0){
-            if (winnerPersistCount(stable) >= config.stepPersistFrames){
-              activeIdx = stable;
-              activeStartTs = tsNow;
+            if (winnerPersistCount(stable) >= eff.stepPersistFrames){
+              activeIdx = stable; activeStartTs = tsNow;
             }
           } else if (stable !== activeIdx){
-            const persisted = winnerPersistCount(stable) >= config.stepPersistFrames;
-            const dwelt = (tsNow - activeStartTs) >= config.minSwitchGapMs;
+            const persisted = winnerPersistCount(stable) >= eff.stepPersistFrames;
+            const dwelt = (tsNow - activeStartTs) >= eff.minSwitchGapMs;
             if (persisted && dwelt){
               pushStep(activeIdx, tsNow);
-              activeIdx = stable;
-              activeStartTs = tsNow;
+              activeIdx = stable; activeStartTs = tsNow;
             }
           }
         }
-
-        // End-of-reveal silence
         if ((tsNow - lastTealTs) >= config.revealEndSilenceMs){
-          if (activeIdx >= 0){
-            pushStep(activeIdx, tsNow);
-            activeIdx = -1;
-          }
+          if (activeIdx >= 0){ pushStep(activeIdx, tsNow); activeIdx = -1; }
           if (revealSeq.length > 0){
             phase='waiting-input';
             inputSeq=[]; inputStartTs=tsNow;
@@ -677,7 +697,7 @@
               tileState[expected].lastHotTs = tsNow;
               elInputCount.textContent=String(inputSeq.length);
             }
-          } else if (bestGreenIdx >= 0) {
+          } else {
             badPressTile = bestGreenIdx;
             badPressTs = tsNow;
           }
@@ -697,8 +717,7 @@
       case 'rearming':
         if (tsNow - rearmTs >= config.rearmDelayMs){
           phase='armed'; warmupStartTs=tsNow;
-          winnerHist.length = 0;
-          activeIdx = -1; activeStartTs = 0;
+          winnerHist.length = 0; activeIdx = -1; activeStartTs = 0;
         }
         break;
     }
@@ -706,7 +725,7 @@
     updateStatus();
   }
 
-  // Overlay drawing (includes debug overlays)
+  // Overlay drawing (unchanged except mask ring)
   function drawOverlay(){
     updateOverlayBox();
 
@@ -715,19 +734,16 @@
     const sx = vw/(video.videoWidth||1), sy = vh/(video.videoHeight||1);
 
     if (boardRect && video.videoWidth){
-      // Board
       ctxOv.save();
       ctxOv.strokeStyle='rgba(88,176,255,0.95)'; ctxOv.setLineDash([6,4]); ctxOv.lineWidth=2;
       ctxOv.strokeRect(boardRect.x*sx, boardRect.y*sy, boardRect.w*sx, boardRect.h*sy);
       ctxOv.restore();
 
-      // Tiles
       ctxOv.save();
       ctxOv.strokeStyle='rgba(140,200,255,0.28)'; ctxOv.lineWidth=1;
       for (const t of tileRects){ ctxOv.strokeRect(t.x*sx, t.y*sy, t.w*sx, t.h*sy); }
       ctxOv.restore();
 
-      // Debug overlay: heatmap / samples / labels
       if (debug.enabled && tileMetrics.length===tileRects.length){
         if (debug.overlayHeatmap){
           for (let i=0;i<tileRects.length;i++){
@@ -770,7 +786,6 @@
           ctxOv.restore();
         }
 
-        // Show cursor mask ring for tuning
         if (config.ignoreNearMouse && lastMouse.inBoard){
           const rwVideo = config.cursorMaskRadiusPx * (boardRect.w/work.width);
           const rx = rwVideo * sx, ry = rwVideo * sy;
@@ -786,7 +801,6 @@
       }
     }
 
-    // Step-by-step guide
     if (phase==='waiting-input' && revealSeq.length>0 && boardRect){
       const k = inputSeq.length; const N = revealLenExpected || revealSeq.length;
       guideHeader.style.display='block';
@@ -805,7 +819,6 @@
           ctxOv.strokeRect(x,y,w,h);
         }
       }
-      // wrong press flash
       if (badPressTile>=0 && (now - badPressTs) < 300){
         const t = tileRects[badPressTile];
         if (t){
@@ -820,7 +833,6 @@
       guideHeader.style.display='none';
     }
 
-    // Editor visuals
     if (editor.mode==='draw' && editor.rect){
       const r=editor.rect, sq=squareFromRectCentered(r,vw,vh);
       ctxOv.save();
@@ -842,7 +854,7 @@
     }
   }
 
-  // Debug viewer (tile-level render)
+  // Debug viewer (unchanged)
   function drawDebugViewer(){
     if (!debug.enabled || !hasBoard || tileMetrics.length!==tileRects.length) {
       ctxDbg.fillStyle='#0b1220'; ctxDbg.fillRect(0,0,debugView.width,debugView.height);
@@ -903,7 +915,7 @@
     }
   }
 
-  // Editor helpers
+  // Editor helpers + robust pointer handlers
   function getHandleRects(r,hs){
     return [
       {name:'nw', x:r.x-hs/2, y:r.y-hs/2, w:hs, h:hs},
@@ -938,7 +950,6 @@
     return {x,y,w:startRect.w,h:startRect.h};
   }
 
-  // Robust overlay drawing/editing handlers
   function getOverlayXY(e){
     const cr = overlay.getBoundingClientRect();
     const cx = (e.clientX != null) ? e.clientX : (e.touches && e.touches[0]?.clientX) || 0;
@@ -997,7 +1008,6 @@
     drawOverlay();
   }
 
-  // Attach robust handlers + mouse fallback
   overlay.addEventListener('pointerdown', onOverlayPointerDown, { passive:false });
   overlay.addEventListener('pointermove', onOverlayPointerMove, { passive:false });
   overlay.addEventListener('pointerup', onOverlayPointerUp, { passive:true });
@@ -1014,7 +1024,7 @@
       {key:'revealEndSilenceMs', label:'Reveal End Silence (ms)', step:25, min:300, max:2000},
       {key:'winnerModeWindow', label:'Winner Mode Window (frames)', step:1, min:1, max:9},
       {key:'stepPersistFrames', label:'Step Persist (frames)', step:1, min:1, max:6},
-      {key:'minSwitchGapMs', label:'Min Switch Gap (ms)', step:5, min:40, max:200},
+      {key:'minSwitchGapMs', label:'Min Switch Gap (ms)', step:5, min:0, max:200},
       {key:'minTealHits', label:'Min Teal Hits (0–25)', step:1, min:1, max:25},
       {key:'dedupeMs', label:'Pulse Dedupe (ms)', step:10, min:60, max:600},
       {key:'belowLowFramesToBypass', label:'Below-Low Frames to Repeat', step:1, min:0, max:12},
@@ -1040,7 +1050,7 @@
     }
   }
 
-  // Link overlay sizing
+  // Resize hooks
   window.addEventListener('resize', updateOverlayBox);
   video.addEventListener('loadedmetadata', updateOverlayBox);
   video.addEventListener('play', updateOverlayBox);
@@ -1049,6 +1059,7 @@
   async function startCapture(){
     try{
       stream = await navigator.mediaDevices.getDisplayMedia({
+        // Tab capture often gives steadier FPS than Window capture in Chrome; try selecting a Tab in the picker
         video:{ displaySurface:'window', frameRate:{ideal:60,max:60}, cursor:'never' }, audio:false
       });
       video.srcObject = stream;
@@ -1127,23 +1138,18 @@
   inpCursorRadius.addEventListener('change', ()=>{ const v=Number(inpCursorRadius.value); if (Number.isFinite(v)) config.cursorMaskRadiusPx = Math.max(4, Math.min(40, Math.round(v))); });
   selDbgView.addEventListener('change', ()=>{ debug.view = selDbgView.value; });
 
-  // Ensure UI reflects defaults
-  ckIgnoreCursor.checked = config.ignoreCursor;
-  ckIgnoreNearMouse.checked = config.ignoreNearMouse;
-  inpCursorRadius.value = String(config.cursorMaskRadiusPx);
-
   // Loops
   function uiLoop(){ if (!running) return; drawOverlay(); if (debug.enabled) drawDebugViewer(); requestAnimationFrame(uiLoop); }
   function videoLoopRaf(){
     if (!running) return;
     const tsNow=performance.now();
-    framesInBucket++; if (tsNow-lastFPSTs>=1000){ elFPS.textContent=String(framesInBucket); framesInBucket=0; lastFPSTs=tsNow; }
+    framesInBucket++; if (tsNow-lastFPSTs>=1000){ measuredFps=framesInBucket; elFPS.textContent=String(framesInBucket); framesInBucket=0; lastFPSTs=tsNow; }
     if (detectionActive){ processFrame(tsNow); }
     requestAnimationFrame(videoLoopRaf);
   }
   function videoLoopVFC(now){
     if (!running) return;
-    framesInBucket++; if (now-lastFPSTs>=1000){ elFPS.textContent=String(framesInBucket); framesInBucket=0; lastFPSTs=now; }
+    framesInBucket++; if (now-lastFPSTs>=1000){ measuredFps=framesInBucket; elFPS.textContent=String(framesInBucket); framesInBucket=0; lastFPSTs=now; }
     if (detectionActive){ processFrame(now); }
     video.requestVideoFrameCallback(videoLoopVFC);
   }
