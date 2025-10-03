@@ -228,22 +228,17 @@
   const elInputCount = document.getElementById('inputCount');
   const elGridSize = document.getElementById('gridSize');
 
-  // Config (rollback to stable step-by-step)
+  // Stable defaults + new Min Split
   const defaultConfig = {
-    // Signal model
     thrHigh:10, thrLow:6, holdFrames:1, refractoryFrames:6, emaAlpha:0.20,
     energyWindow:5, energyScale:2.5, warmupMs:450, surgeRejectPct:0.4,
-    // Reveal clustering (stable)
-    revealStepGapMs:140,        // gap to close a step
-    revealEndSilenceMs:700,     // silence to end reveal
-    // Dedupe + repeat gating
+    revealStepGapMs:140,      // gap to close a step
+    revealEndSilenceMs:700,   // silence to end reveal
+    minStepSplitMs:90,        // NEW: earliest split threshold between steps
     dedupeMs:160,
     belowLowFramesToBypass:2,
-    // Input
     inputTimeoutMs:12000,
-    // Rearm
     rearmDelayMs:120,
-    // Behavior
     requireColorToStartReveal:true
   };
   const config = { ...defaultConfig };
@@ -270,7 +265,7 @@
   const wctx = work.getContext('2d', { willReadFrequently:true });
 
   let tileState=[], sampleOffsets=[];
-  let tileMetrics=[]; // per-tile debug metrics for current frame
+  let tileMetrics=[]; // per-tile debug metrics
 
   // FSM
   let phase='idle'; // 'idle'|'armed'|'reveal'|'waiting-input'|'rearming'
@@ -283,7 +278,7 @@
   let warmupStartTs=0, inputStartTs=0, rearmTs=0;
 
   // Reveal clusterer
-  let stepCluster=null;   // { startTs, tally: Map }
+  let stepCluster=null;   // { startTs, tally: Map, firstSeen: Map, leadIdx }
   let lastTealTs=0;
 
   // FPS
@@ -382,7 +377,7 @@
     });
   }
 
-  // Color heuristics (same as stable build)
+  // Color heuristics (stable)
   function isTealRGB(r,g,b){ return g>=96 && b>=96 && g>=1.25*r && b>=1.15*r && g<=1.6*b; }
   function isGreenRGB(r,g,b){ return g>=110 && g>=1.4*r && g>=1.25*b; }
 
@@ -420,33 +415,55 @@
     const thr=(config.thrHigh-config.thrLow)*config.energyScale; return st.energySum>=thr;
   }
 
-  // Reveal clustering
+  // Reveal clustering (earliest-wins + adaptive split)
   function addToCluster(tsNow, indices){
-    if (indices.length===0) return;
-    if (!stepCluster) stepCluster = { startTs: tsNow, tally: new Map() };
-    for (const idx of indices){
-      stepCluster.tally.set(idx, (stepCluster.tally.get(idx)||0)+1);
+    if (!indices || indices.length===0) return;
+    const idx = indices[0]; // single-winner per frame
+    if (!stepCluster){
+      stepCluster = { startTs: tsNow, tally: new Map(), firstSeen: new Map(), leadIdx: idx };
     }
+
+    // Adaptive split: if a new tile appears after minStepSplitMs, close current step and start next
+    if (stepCluster.leadIdx !== idx && (tsNow - stepCluster.startTs) >= config.minStepSplitMs){
+      finalizeCluster(tsNow);
+      stepCluster = { startTs: tsNow, tally: new Map(), firstSeen: new Map(), leadIdx: idx };
+    }
+
+    stepCluster.tally.set(idx, (stepCluster.tally.get(idx)||0)+1);
+    if (!stepCluster.firstSeen.has(idx)) stepCluster.firstSeen.set(idx, tsNow);
     lastTealTs = tsNow;
+  }
+  function finalizeCluster(tsNow){
+    if (!stepCluster) return -1;
+
+    // Earliest-wins
+    let bestIdx=-1, bestTs=Infinity, bestCount=-1;
+    for (const [idx, ts] of stepCluster.firstSeen.entries()){
+      if (ts < bestTs){ bestTs = ts; bestIdx = idx; }
+    }
+    if (bestIdx < 0){
+      for (const [idx, count] of stepCluster.tally){
+        if (count > bestCount){ bestCount = count; bestIdx = idx; }
+      }
+    }
+
+    stepCluster = null;
+    if (bestIdx >= 0){
+      const st=tileState[bestIdx];
+      const within = st && ((tsNow - st.lastHotTs) < config.dedupeMs);
+      if (!within){
+        revealSeq.push(bestIdx);
+        if (st) st.lastHotTs = tsNow;
+        elRevealCount.textContent=String(revealSeq.length);
+        return bestIdx;
+      }
+    }
+    return -1;
   }
   function maybeFinalizeCluster(tsNow){
     if (!stepCluster) return -1;
     if ((tsNow - lastTealTs) >= config.revealStepGapMs){
-      let bestIdx=-1, bestCount=-1;
-      for (const [idx,count] of stepCluster.tally){
-        if (count>bestCount){ bestCount=count; bestIdx=idx; }
-      }
-      stepCluster=null;
-      if (bestIdx>=0){
-        const st=tileState[bestIdx];
-        const within = st && ((tsNow - st.lastHotTs) < config.dedupeMs);
-        if (!within){
-          revealSeq.push(bestIdx);
-          if (st) st.lastHotTs=tsNow;
-          elRevealCount.textContent=String(revealSeq.length);
-          return bestIdx;
-        }
-      }
+      return finalizeCluster(tsNow);
     }
     return -1;
   }
@@ -454,14 +471,17 @@
     return (revealSeq.length>0) && !stepCluster && ((tsNow - lastTealTs) >= config.revealEndSilenceMs);
   }
 
-  // Frame processing (populates tileMetrics when debug is on)
+  // Frame processing (single-winner per frame; populates tileMetrics for debug)
   function processFrame(tsNow){
     if (!hasBoard || !detectionActive) return;
     const img = readBoardImageData(); if (!img) return;
 
-    const tealIndices=[], greenIndices=[];
     const inWarm = (tsNow - warmupStartTs) < config.warmupMs;
     if (debug.enabled){ tileMetrics.length = tileRects.length; }
+
+    // winners for this frame
+    let bestTealIdx = -1, bestTealScore = -1;
+    let bestGreenIdx = -1, bestGreenScore = -1;
 
     for (let i=0;i<tileRects.length;i++){
       const t=tileRects[i], st=tileState[i];
@@ -486,14 +506,31 @@
       const canTrigger = (st.refractory===0) || canRepeatBypass;
 
       if (canTrigger && (byHold||byEnergy)){
-        if (phase==='armed' || phase==='reveal'){ if (cls.teal){ tealIndices.push(i); st.refractory=config.refractoryFrames; } }
-        else if (phase==='waiting-input'){ if (cls.green){ greenIndices.push(i); st.refractory=config.refractoryFrames; } }
+        if ((phase==='armed' || phase==='reveal') && cls.teal){
+          const score = cls.tealHits*10 + Math.max(0, delta);
+          if (score > bestTealScore){ bestTealScore=score; bestTealIdx=i; }
+        }else if (phase==='waiting-input' && cls.green){
+          const score = cls.greenHits*10 + Math.max(0, delta);
+          if (score > bestGreenScore){ bestGreenScore=score; bestGreenIdx=i; }
+        }
       }
 
       if (debug.enabled) tileMetrics[i] = {avg, base:st.baseline, delta, tealHits:cls.tealHits, greenHits:cls.greenHits, teal:cls.teal, green:cls.green};
     }
 
-    // FSM (stable)
+    // Build single-winner arrays and set refractory
+    const tealIndices = [];
+    const greenIndices = [];
+    if (bestTealIdx >= 0){
+      tealIndices.push(bestTealIdx);
+      tileState[bestTealIdx].refractory = config.refractoryFrames;
+    }
+    if (bestGreenIdx >= 0){
+      greenIndices.push(bestGreenIdx);
+      tileState[bestGreenIdx].refractory = config.refractoryFrames;
+    }
+
+    // FSM (stable + clustering changes)
     switch(phase){
       case 'idle': break;
 
@@ -580,8 +617,7 @@
         if (debug.overlayHeatmap){
           for (let i=0;i<tileRects.length;i++){
             const t=tileRects[i], m=tileMetrics[i];
-            const a = clamp(Math.abs(m.delta)/12, 0, 1); // normalize delta approx
-            // simple diverging colormap: neg=blue, pos=yellow/red
+            const a = clamp(Math.abs(m.delta)/12, 0, 1);
             const pos = m.delta>=0;
             const r = pos ? Math.round(255*a) : 0;
             const g = pos ? Math.round(180*a) : Math.round(120*a);
@@ -680,41 +716,30 @@
   // Debug viewer (tile-level render)
   function drawDebugViewer(){
     if (!debug.enabled || !hasBoard || tileMetrics.length!==tileRects.length) {
-      // draw subdued placeholder
       ctxDbg.fillStyle='#0b1220'; ctxDbg.fillRect(0,0,debugView.width,debugView.height);
-      if (hasBoard && work.width>0) {
-        // show raw if available even when metrics not ready
-        if (debug.view==='raw') {
-          ctxDbg.drawImage(work, 0,0, debugView.width, debugView.height);
-        }
+      if (hasBoard && work.width>0 && debug.view==='raw') {
+        ctxDbg.drawImage(work, 0,0, debugView.width, debugView.height);
       }
       return;
     }
-    // base
     ctxDbg.fillStyle='#0b1220'; ctxDbg.fillRect(0,0,debugView.width,debugView.height);
 
-    // draw raw board scaled in background for context
     if (debug.view==='raw'){
-      ctxDbg.drawImage(work, 0,0, debugView.width, debugView.height);
+      ctxDbg.drawImage(work, 0,0,debugView.width,debugView.height);
     } else {
-      // optional faint raw for reference
       ctxDbg.globalAlpha=0.25;
-      if (work.width>0) ctxDbg.drawImage(work, 0,0, debugView.width, debugView.height);
+      if (work.width>0) ctxDbg.drawImage(work, 0,0,debugView.width,debugView.height);
       ctxDbg.globalAlpha=1;
     }
 
-    // draw per-tile visual
-    // compute scale from board to debugView
     const sx = (boardRect ? debugView.width/boardRect.w : 1);
     const sy = (boardRect ? debugView.height/boardRect.h : 1);
 
-    // grid and fills
     for (let i=0;i<tileRects.length;i++){
       const t=tileRects[i], m=tileMetrics[i];
       const x=(t.x-boardRect.x)*sx, y=(t.y-boardRect.y)*sy, w=t.w*sx, h=t.h*sy;
 
       if (debug.view==='grayscale'){
-        // grayscale via tile avg
         const L = clamp(Math.round(m.avg), 0, 255);
         ctxDbg.fillStyle = `rgb(${L},${L},${L})`;
         ctxDbg.fillRect(x,y,w,h);
@@ -736,12 +761,10 @@
         ctxDbg.fillRect(x,y,w,h);
       }
 
-      // outline grid
       ctxDbg.strokeStyle = 'rgba(140,200,255,0.35)';
       ctxDbg.lineWidth = 1;
       ctxDbg.strokeRect(x,y,w,h);
 
-      // labels
       if (debug.overlayLabels){
         ctxDbg.font='600 10px system-ui, -apple-system, Segoe UI, Roboto';
         ctxDbg.fillStyle='#cfe6ff'; ctxDbg.textAlign='left'; ctxDbg.textBaseline='top';
@@ -784,6 +807,16 @@
   function squareMove(startRect,dx,dy,maxW,maxH){
     const x=clamp(startRect.x+dx,0,maxW-startRect.w), y=clamp(startRect.y+dy,0,maxH-startRect.h);
     return {x,y,w:startRect.w,h:startRect.h};
+  }
+
+  function commitEditorRectToBoard(){
+    if (!editor.rect || !video.videoWidth) return;
+    const vw=overlay.width, vh=overlay.height, sx=(video.videoWidth||1)/vw, sy=(video.videoHeight||1)/vh;
+    const r=editor.rect;
+    boardRect={ x:r.x*sx, y:r.y*sy, w:r.w*sx, h:r.h*sy };
+    tileRects = buildTilesFromSquare(boardRect.x,boardRect.y,boardRect.w,boardRect.h);
+    hasBoard=true; ensureTileState(); calibrateBaselines();
+    btnEditBoard.disabled=false; btnClearBoard.disabled=false;
   }
 
   // Calibration
@@ -878,70 +911,13 @@
   ckDbgLabels.addEventListener('change', ()=>{ debug.overlayLabels = ckDbgLabels.checked; });
   selDbgView.addEventListener('change', ()=>{ debug.view = selDbgView.value; });
 
-  // Editor pointer handlers
-  overlay.addEventListener('pointerdown', (e)=>{
-    if (editor.mode==='idle') return;
-    overlay.setPointerCapture(e.pointerId);
-    const cr=overlay.getBoundingClientRect();
-    const x=e.clientX-cr.left, y=e.clientY-cr.top;
-    editor.start={x,y};
-    if (editor.mode==='draw'){ editor.rect={x,y,w:0,h:0}; }
-    else if (editor.mode==='edit'){
-      const h=hitTestHandle(x,y,editor.rect,editor.handleSize);
-      if (h){ editor.activeHandle=h; editor.rectStart={...editor.rect}; }
-      else if (pointInRect(x,y,editor.rect)){ editor.activeHandle='move'; editor.rectStart={...editor.rect}; }
-      else { editor.activeHandle=null; }
-    }
-    drawOverlay();
-  });
-  overlay.addEventListener('pointermove', (e)=>{
-    if (editor.mode==='idle') return;
-    const cr=overlay.getBoundingClientRect();
-    const x=e.clientX-cr.left, y=e.clientY-cr.top;
-    const dx=x-editor.start.x, dy=y-editor.start.y;
-    const maxW=overlay.width, maxH=overlay.height;
-    if (editor.mode==='draw' && editor.rect){
-      editor.rect = clampRect(editor.start.x,editor.start.y,dx,dy,maxW,maxH);
-    }else if (editor.mode==='edit' && editor.rect && editor.activeHandle){
-      if (editor.activeHandle==='move') editor.rect = squareMove(editor.rectStart,dx,dy,maxW,maxH);
-      else editor.rect = squareResizeFromCorner(editor.rectStart,editor.activeHandle,dx,dy,maxW,maxH);
-    }
-    drawOverlay();
-  });
-  overlay.addEventListener('pointerup', ()=>{
-    if (editor.mode==='draw' && editor.rect){
-      editor.rect = squareFromRectCentered(editor.rect, overlay.width, overlay.height);
-      editor.mode='edit'; btnDoneEdit.disabled=false; drawOverlay();
-    }else if (editor.mode==='edit'){ editor.activeHandle=null; drawOverlay(); }
-  });
-  overlay.addEventListener('pointercancel', ()=>{ editor.activeHandle=null; drawOverlay(); });
-  window.addEventListener('keydown', (e)=>{
-    if (editor.mode!=='edit' || !editor.rect) return;
-    const step=e.shiftKey?10:1;
-    if (e.key==='ArrowLeft') editor.rect=squareMove(editor.rect,-step,0,overlay.width,overlay.height);
-    else if (e.key==='ArrowRight') editor.rect=squareMove(editor.rect,step,0,overlay.width,overlay.height);
-    else if (e.key==='ArrowUp') editor.rect=squareMove(editor.rect,0,-step,overlay.width,overlay.height);
-    else if (e.key==='ArrowDown') editor.rect=squareMove(editor.rect,0,step,overlay.width,overlay.height);
-    else if (e.key==='Escape'){ editor.mode='idle'; overlay.classList.remove('pe-auto'); btnDoneEdit.disabled=true; }
-    drawOverlay();
-  });
-
-  function commitEditorRectToBoard(){
-    if (!editor.rect || !video.videoWidth) return;
-    const vw=overlay.width, vh=overlay.height, sx=(video.videoWidth||1)/vw, sy=(video.videoHeight||1)/vh;
-    const r=editor.rect;
-    boardRect={ x:r.x*sx, y:r.y*sy, w:r.w*sx, h:r.h*sy };
-    tileRects = buildTilesFromSquare(boardRect.x,boardRect.y,boardRect.w,boardRect.h);
-    hasBoard=true; ensureTileState(); calibrateBaselines();
-    btnEditBoard.disabled=false; btnClearBoard.disabled=false;
-  }
-
   // Timing panel
   function buildTimingPanel(){
     timingGrid.innerHTML='';
     const fields = [
       {key:'revealStepGapMs', label:'Step Gap (ms)', step:10, min:80, max:400},
       {key:'revealEndSilenceMs', label:'Reveal End Silence (ms)', step:25, min:300, max:2000},
+      {key:'minStepSplitMs', label:'Min Split (ms)', step:5, min:40, max:200},           // NEW
       {key:'dedupeMs', label:'Pulse Dedupe (ms)', step:10, min:60, max:600},
       {key:'belowLowFramesToBypass', label:'Below-Low Frames to Repeat', step:1, min:0, max:12},
       {key:'holdFrames', label:'Hold Frames', step:1, min:0, max:8},
@@ -966,7 +942,7 @@
     }
   }
 
-  // Resize/link
+  // Link overlay sizing
   window.addEventListener('resize', updateOverlayBox);
   video.addEventListener('loadedmetadata', updateOverlayBox);
   video.addEventListener('play', updateOverlayBox);
