@@ -6,132 +6,61 @@
 <title>Zen Solver</title>
 <style>
   :root{
-    --navy-900: #0b1220;
-    --navy-850: #0f1a2b;
-    --navy-800: #122036;
-    --navy-750: #152744;
-    --blue-500: #3aa0ff;
-    --blue-400: #58b0ff;
-    --blue-300: #8cc8ff;
-    --cyan-400: #3af2e8;
-    --green-400:#38d677;
-    --text-100: #e6eef7;
-    --text-200: #c3d4ea;
-    --muted-400:#7f9bb9;
-    --danger-400: #ff6b6b;
-    --card-radius: 12px;
-    --shadow: 0 6px 18px rgba(0,0,0,0.35);
-    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --navy-900:#0b1220; --navy-850:#0f1a2b; --navy-800:#122036; --navy-750:#152744;
+    --blue-500:#3aa0ff; --blue-400:#58b0ff; --blue-300:#8cc8ff;
+    --cyan-400:#3af2e8; --green-400:#38d677;
+    --text-100:#e6eef7; --text-200:#c3d4ea; --muted-400:#7f9bb9; --danger-400:#ff6b6b;
+    --card-radius:12px; --shadow:0 6px 18px rgba(0,0,0,.35); --mono:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   }
-  * { box-sizing: border-box; }
-  html,body { height:100%; }
+  *{box-sizing:border-box}
+  html,body{height:100%}
   body{
-    margin:0;
-    background: radial-gradient(1200px 800px at 20% 0%, var(--navy-800), var(--navy-900));
-    color: var(--text-100);
-    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-    line-height:1.4;
+    margin:0; background:radial-gradient(1200px 800px at 20% 0%, var(--navy-800), var(--navy-900));
+    color:var(--text-100); font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height:1.4;
   }
-  .app{
-    display:grid;
-    grid-template-columns: 320px 1fr 320px;
-    gap:16px;
-    padding:16px;
-    height:100dvh;
-  }
+  .app{display:grid; grid-template-columns:320px 1fr 320px; gap:16px; padding:16px; height:100dvh}
   .card{
-    background: linear-gradient(180deg, var(--navy-800), var(--navy-850));
-    border:1px solid rgba(90,140,200,0.15);
-    border-radius: var(--card-radius);
-    box-shadow: var(--shadow);
-    overflow:hidden;
-    display:flex;
-    flex-direction:column;
+    background:linear-gradient(180deg, var(--navy-800), var(--navy-850));
+    border:1px solid rgba(90,140,200,.15); border-radius:var(--card-radius); box-shadow:var(--shadow);
+    overflow:hidden; display:flex; flex-direction:column;
   }
-  .card-header{
-    padding:12px 14px;
-    border-bottom:1px solid rgba(120,170,230,0.15);
-    font-weight:600;
-    color: var(--blue-300);
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
+  .card-header{padding:12px 14px; border-bottom:1px solid rgba(120,170,230,.15); font-weight:600; color:var(--blue-300); display:flex; align-items:center; justify-content:space-between}
+  .card-body{padding:14px; overflow:auto}
+  .controls{display:grid; gap:12px}
+  .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+  button,select{
+    background:linear-gradient(180deg, var(--navy-750), var(--navy-800));
+    border:1px solid rgba(80,130,200,.25); color:var(--text-100); border-radius:10px; padding:10px 12px; font-size:14px; cursor:pointer; transition:all .15s ease;
   }
-  .card-body{ padding:14px; overflow:auto; }
-  .controls{ display:grid; gap:12px; }
-  .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-  button, select{
-    background: linear-gradient(180deg, var(--navy-750), var(--navy-800));
-    border:1px solid rgba(80,130,200,0.25);
-    color: var(--text-100);
-    border-radius:10px;
-    padding:10px 12px;
-    font-size:14px;
-    cursor:pointer;
-    transition: all .15s ease;
-  }
-  button:hover, select:hover{ border-color: var(--blue-400); box-shadow: 0 0 0 3px rgba(60,160,255,.15) inset; }
-  button.primary{ background: linear-gradient(180deg,#0d2b4a,#0e2141); border-color: rgba(58,160,255,.7); color: var(--blue-300); font-weight:600; }
-  button.success{ border-color: rgba(56,214,119,.6); color: var(--green-400); }
-  button.warn{ border-color: rgba(255,107,107,.5); color: var(--danger-400); }
-  button.ghost{ border-color: rgba(120,170,230,.35); color: var(--text-200); }
-  button:disabled{ opacity:.55; cursor:not-allowed; }
-  label{ display:block; margin-bottom:6px; color: var(--text-200); }
-
-  .status{
-    display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-top:8px;
-    font-family: var(--mono); font-variant-numeric: tabular-nums;
-  }
-  .status div{
-    padding:8px; background: linear-gradient(180deg, var(--navy-800), var(--navy-850));
-    border:1px solid rgba(90,140,200,.2); border-radius:8px; color: var(--text-200);
-  }
-  .status strong{ color: var(--text-100); }
-
-  .preview-wrap{
-    position:relative; width:100%; height:100%;
-    display:flex; align-items:center; justify-content:center;
-    background: radial-gradient(800px 600px at 50% 0%, #0e1a2e, #0b1220);
-  }
-  video{
-    max-width:100%; max-height:100%;
-    border-radius:10px; border:1px solid rgba(80,130,200,.25); background:#000;
-  }
-  canvas.overlay{ position:absolute; inset:0; }
-  .overlay.pe-none { pointer-events:none; }
-  .overlay.pe-auto { pointer-events:auto; }
-
-  .list{ display:flex; flex-direction:column; gap:8px; }
-  .step{
-    display:flex; align-items:center; justify-content:space-between;
-    padding:8px 10px; background: linear-gradient(180deg, var(--navy-800), var(--navy-850));
-    border:1px solid rgba(90,140,200,.2); border-radius:8px; font-family: var(--mono);
-    font-variant-numeric: tabular-nums;
-  }
-  .hint{ color: var(--muted-400); font-size:13px; }
-
-  .grid{ display:grid; gap:10px; }
-  .grid.cols-3{ grid-template-columns: 1fr 1fr 1fr; }
-  .divider{ height:1px; background: linear-gradient(90deg, transparent, rgba(130,160,210,.25), transparent); margin:8px 0; }
-
-  .badge{
-    display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px;
-    border:1px solid rgba(90,140,200,.25); color: var(--text-200); font-size:12px;
-    background: linear-gradient(180deg, var(--navy-800), var(--navy-850));
-  }
-  .badge .dot{ width:8px; height:8px; border-radius:50%; background: var(--blue-500); }
-
-  .legend{ display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; color: var(--muted-400); font-size:12px; }
-  .legend span{ display:inline-flex; align-items:center; gap:6px; }
-  .legend .teal{ width:10px; height:10px; background:#2dd4d4; border-radius:2px; }
-  .legend .green{ width:10px; height:10px; background:#22c55e; border-radius:2px; }
-  .legend .board{ width:10px; height:10px; background:transparent; border:1px dashed #58b0ff; border-radius:2px; }
-
-  @media (max-width:1100px){
-    .app{ grid-template-columns: 1fr; height:auto; }
-    .card-body{ max-height:50vh; }
-    .preview-wrap{ height:50vh; }
-  }
+  button:hover,select:hover{border-color:var(--blue-400); box-shadow:0 0 0 3px rgba(60,160,255,.15) inset}
+  button.primary{background:linear-gradient(180deg,#0d2b4a,#0e2141); border-color:rgba(58,160,255,.7); color:var(--blue-300); font-weight:600}
+  button.success{border-color:rgba(56,214,119,.6); color:var(--green-400)}
+  button.warn{border-color:rgba(255,107,107,.5); color:var(--danger-400)}
+  button.ghost{border-color:rgba(120,170,230,.35); color:var(--text-200)}
+  button:disabled{opacity:.55; cursor:not-allowed}
+  label{display:block; margin-bottom:6px; color:var(--text-200)}
+  .status{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; font-family:var(--mono); font-variant-numeric:tabular-nums}
+  .status div{padding:8px; background:linear-gradient(180deg, var(--navy-800), var(--navy-850)); border:1px solid rgba(90,140,200,.2); border-radius:8px; color:var(--text-200)}
+  .status strong{color:var(--text-100)}
+  .preview-wrap{position:relative; width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:radial-gradient(800px 600px at 50% 0%, #0e1a2e, #0b1220)}
+  video{max-width:100%; max-height:100%; border-radius:10px; border:1px solid rgba(80,130,200,.25); background:#000}
+  canvas.overlay{position:absolute; inset:0}
+  .overlay.pe-none{pointer-events:none}
+  .overlay.pe-auto{pointer-events:auto}
+  .list{display:flex; flex-direction:column; gap:8px}
+  .step{display:flex; align-items:center; justify-content:space-between; padding:8px 10px; background:linear-gradient(180deg, var(--navy-800), var(--navy-850)); border:1px solid rgba(90,140,200,.2); border-radius:8px; font-family:var(--mono); font-variant-numeric:tabular-nums}
+  .hint{color:var(--muted-400); font-size:13px}
+  .grid{display:grid; gap:10px}
+  .grid.cols-3{grid-template-columns:1fr 1fr 1fr}
+  .divider{height:1px; background:linear-gradient(90deg, transparent, rgba(130,160,210,.25), transparent); margin:8px 0}
+  .badge{display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; border:1px solid rgba(90,140,200,.25); color:var(--text-200); font-size:12px; background:linear-gradient(180deg, var(--navy-800), var(--navy-850))}
+  .badge .dot{width:8px; height:8px; border-radius:50%; background:var(--blue-500)}
+  .legend{display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; color:var(--muted-400); font-size:12px}
+  .legend span{display:inline-flex; align-items:center; gap:6px}
+  .legend .teal{width:10px; height:10px; background:#2dd4d4; border-radius:2px}
+  .legend .green{width:10px; height:10px; background:#22c55e; border-radius:2px}
+  .legend .board{width:10px; height:10px; background:transparent; border:1px dashed #58b0ff; border-radius:2px}
+  @media (max-width:1100px){.app{grid-template-columns:1fr; height:auto}.card-body{max-height:50vh}.preview-wrap{height:50vh}}
 </style>
 </head>
 <body>
@@ -148,11 +77,13 @@
             <button id="btnCapture" class="primary">Start Capture</button>
             <button id="btnStopCapture" class="warn" disabled>Stop Capture</button>
           </div>
+
           <div class="row">
-            <button id="btnDetectBoard" class="">Auto Detect Board</button>
-            <button id="btnManualBoard" class="ghost">Manual Board</button>
-            <button id="btnClearBoard" class="ghost">Clear</button>
+            <button id="btnSetBoard" class="ghost">Set Board</button>
+            <button id="btnEditBoard" class="ghost" disabled>Edit Board</button>
+            <button id="btnClearBoard" class="ghost" disabled>Clear</button>
           </div>
+
           <div class="row">
             <button id="btnCalibrate" class="">Calibrate</button>
             <button id="btnStart" class="success">Start Detection</button>
@@ -169,7 +100,7 @@
               <option value="hard">Hard (6×6)</option>
               <option value="expert">Expert (6×6)</option>
             </select>
-            <div class="hint">Changing difficulty clears state and requires board re-detection.</div>
+            <div class="hint">Changing difficulty clears state and requires setting the board again.</div>
           </div>
 
           <div class="divider"></div>
@@ -197,7 +128,7 @@
             <span><i class="board"></i> Board</span>
             <span><i class="teal"></i> Teal (Reveal)</span>
             <span><i class="green"></i> Green (Input)</span>
-            <span>Manual: click “Manual Board”, drag over the grid</span>
+            <span>Tip: click “Set Board”, drag a square over the grid, release to lock</span>
           </div>
         </div>
       </div>
@@ -228,15 +159,15 @@
 
 <script>
 (function(){
-  // ---- DOM ----
+  // DOM
   const video = document.getElementById('video');
   const overlay = document.getElementById('overlay');
   const ctxOv = overlay.getContext('2d', { alpha: true });
 
   const btnCapture = document.getElementById('btnCapture');
   const btnStopCapture = document.getElementById('btnStopCapture');
-  const btnDetectBoard = document.getElementById('btnDetectBoard');
-  const btnManualBoard = document.getElementById('btnManualBoard');
+  const btnSetBoard = document.getElementById('btnSetBoard');
+  const btnEditBoard = document.getElementById('btnEditBoard');
   const btnClearBoard = document.getElementById('btnClearBoard');
   const btnCalibrate = document.getElementById('btnCalibrate');
   const btnStart = document.getElementById('btnStart');
@@ -255,69 +186,63 @@
   const elInputProgress = document.getElementById('inputProgress');
   const elSequence = document.getElementById('sequence');
 
-  // ---- State ----
+  // State
   const defaultConfig = {
-    thrHigh: 10, thrLow: 6, holdFrames: 1, refractoryFrames: 6,
-    emaAlpha: 0.20, energyWindow: 5, energyScale: 2.5,
-    requireColorToStartReveal: true, warmupMs: 450, surgeRejectPct: 0.4,
-    inputTimeoutMs: 12000, revealHardTimeoutMs: 1800, clusterGapMs: 900, rearmDelayMs: 120,
+    thrHigh:10, thrLow:6, holdFrames:1, refractoryFrames:6, emaAlpha:0.20,
+    energyWindow:5, energyScale:2.5, requireColorToStartReveal:true, warmupMs:450,
+    surgeRejectPct:0.4, inputTimeoutMs:12000, revealHardTimeoutMs:1800,
+    clusterGapMs:900, rearmDelayMs:120,
   };
-
-  let stream = null, track = null, running = false, detectionActive = false, hasBoard = false;
-  let manualMode = false;
-
-  let difficulty = 'medium', rows = 5, cols = 5;
-
-  let boardRect = null; // {x,y,w,h} in video coordinates
-  let tileRects = [];   // [{x,y,w,h,row,col,index}]
-
-  const work = document.createElement('canvas');
-  const wctx = work.getContext('2d', { willReadFrequently: true });
-
-  let tileState = [];
-  let sampleOffsets = [];
-
-  // FSM
-  let phase = 'idle';
-  let roundIndex = 0;
-  let revealLenExpected = 3;
-  let revealSeq = [];
-  let inputSeq = [];
-
-  // Timing
-  let warmupStartTs = 0, revealStartTs = 0, lastClusterTs = 0, inputStartTs = 0, rearmTs = 0;
-
-  // FPS
-  let lastFPSTs = 0, framesInBucket = 0;
-
-  // Config
   const config = { ...defaultConfig };
 
-  // ---- UI helpers ----
+  let stream=null, track=null, running=false, detectionActive=false, hasBoard=false;
+  let manualMode=false;
+
+  let difficulty='medium', rows=5, cols=5;
+
+  let boardRect=null; // {x,y,w,h} in video coords
+  let tileRects=[];
+
+  const work = document.createElement('canvas');
+  const wctx = work.getContext('2d', { willReadFrequently:true });
+
+  let tileState=[], sampleOffsets=[];
+
+  // FSM
+  let phase='idle', roundIndex=0, revealLenExpected=3;
+  let revealSeq=[], inputSeq=[];
+  let warmupStartTs=0, revealStartTs=0, lastClusterTs=0, inputStartTs=0, rearmTs=0;
+
+  // FPS
+  let lastFPSTs=0, framesInBucket=0;
+
+  // Helpers
   function updateGridFromDifficulty(){
     switch(difficulty){
       case 'easy': rows=4; cols=4; break;
       case 'medium': rows=5; cols=5; break;
-      case 'hard': case 'expert': rows=6; cols=6; break;
+      case 'hard':
+      case 'expert': rows=6; cols=6; break;
       default: rows=5; cols=5;
     }
     elGridSize.textContent = `${cols}×${rows}`;
   }
-  function resetDetectionState({clearBoard=true} = {}){
+  function resetDetectionState({clearBoard=true}={}){
     detectionActive=false; btnStart.disabled=false; btnStop.disabled=true;
     phase='idle'; roundIndex=0; revealLenExpected=3; revealSeq=[]; inputSeq=[];
-    warmupStartTs = performance.now();
+    warmupStartTs=performance.now();
     if (clearBoard){
-      boardRect=null; tileRects=[]; hasBoard=false; tileState=[]; sampleOffsets=[];
+      boardRect=null; tileRects=[]; tileState=[]; sampleOffsets=[]; hasBoard=false;
+      btnEditBoard.disabled=true; btnClearBoard.disabled=true;
     }
     updateStatus(); renderSequence(); drawOverlay();
   }
   function updateStatus(){
-    elPhase.textContent = phase;
-    elRound.textContent = String(roundIndex+1);
-    elRevealCount.textContent = String(revealSeq.length);
-    elInputCount.textContent = String(inputSeq.length);
-    elInputProgress.textContent = `${inputSeq.length} / ${revealLenExpected}`;
+    elPhase.textContent=phase;
+    elRound.textContent=String(roundIndex+1);
+    elRevealCount.textContent=String(revealSeq.length);
+    elInputCount.textContent=String(inputSeq.length);
+    elInputProgress.textContent=`${inputSeq.length} / ${revealLenExpected}`;
   }
   function renderSequence(){
     elSequence.innerHTML='';
@@ -328,48 +253,41 @@
     }
     let i=0;
     for (const idx of revealSeq){
-      const t = tileRects[idx];
-      const row = t?t.row+1:'?'; const col = t?t.col+1:'?';
+      const t=tileRects[idx]; const r=t?t.row+1:'?'; const c=t?t.col+1:'?';
       const div=document.createElement('div'); div.className='step';
-      div.innerHTML = `<span>#${(++i)} — (r${row}, c${col})</span><span>idx ${idx}</span>`;
+      div.innerHTML=`<span>#${(++i)} — (r${r}, c${c})</span><span>idx ${idx}</span>`;
       elSequence.appendChild(div);
     }
   }
   function createConfigGrid(){
     configGrid.innerHTML='';
-    const entries = [
-      ['thrHigh', config.thrHigh], ['thrLow', config.thrLow],
-      ['holdFrames', config.holdFrames], ['refractoryFrames', config.refractoryFrames],
-      ['emaAlpha', config.emaAlpha], ['energyWindow', config.energyWindow],
-      ['energyScale', config.energyScale], ['requireColorToStartReveal', String(config.requireColorToStartReveal)],
-      ['warmupMs', config.warmupMs], ['surgeRejectPct', config.surgeRejectPct],
-      ['inputTimeoutMs', config.inputTimeoutMs], ['revealHardTimeoutMs', config.revealHardTimeoutMs],
-      ['clusterGapMs', config.clusterGapMs], ['rearmDelayMs', config.rearmDelayMs]
+    const entries=[
+      ['thrHigh',config.thrHigh],['thrLow',config.thrLow],['holdFrames',config.holdFrames],['refractoryFrames',config.refractoryFrames],
+      ['emaAlpha',config.emaAlpha],['energyWindow',config.energyWindow],['energyScale',config.energyScale],
+      ['requireColorToStartReveal',String(config.requireColorToStartReveal)],['warmupMs',config.warmupMs],['surgeRejectPct',config.surgeRejectPct],
+      ['inputTimeoutMs',config.inputTimeoutMs],['revealHardTimeoutMs',config.revealHardTimeoutMs],['clusterGapMs',config.clusterGapMs],['rearmDelayMs',config.rearmDelayMs]
     ];
     for (const [k,v] of entries){
-      const w=document.createElement('div');
+      const wrap=document.createElement('div');
       const lab=document.createElement('div'); lab.style.color='var(--muted-400)'; lab.style.fontSize='12px'; lab.textContent=k;
       const val=document.createElement('div'); val.style.fontFamily='var(--mono)'; val.style.fontVariantNumeric='tabular-nums'; val.textContent=String(v);
-      w.appendChild(lab); w.appendChild(val); configGrid.appendChild(w);
+      wrap.appendChild(lab); wrap.appendChild(val); configGrid.appendChild(wrap);
     }
   }
 
-  // ---- Capture ----
+  // Capture
   async function startCapture(){
     try{
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { displaySurface:'window', frameRate:{ideal:60,max:60}, cursor:'never' },
-        audio: false
+        video:{ displaySurface:'window', frameRate:{ideal:60,max:60}, cursor:'never' }, audio:false
       });
       video.srcObject = stream;
       track = stream.getVideoTracks()[0];
-      try{ await track.applyConstraints({ frameRate:{ideal:60,max:60} }); }catch(e){}
-      try{ if ('contentHint' in track) track.contentHint='motion'; }catch(e){}
+      try{ await track.applyConstraints({ frameRate:{ideal:60,max:60} }); }catch(_){}
+      try{ if ('contentHint' in track) track.contentHint='motion'; }catch(_){}
       btnCapture.disabled=true; btnStopCapture.disabled=false;
-      running=true; startLoop();
-    }catch(e){
-      console.error(e); alert('Screen/window capture was not granted.');
-    }
+      running=true; startLoops();
+    }catch(e){ console.error(e); alert('Screen/window capture was not granted.'); }
   }
   function stopCapture(){
     if (stream){ stream.getTracks().forEach(t=>t.stop()); }
@@ -377,124 +295,40 @@
     btnCapture.disabled=false; btnStopCapture.disabled=true;
   }
 
-  // ---- Math / Utils ----
+  // Math / utils
   function luminance(r,g,b){ return 0.2126*r + 0.7152*g + 0.0722*b; }
 
-  // ---- Improved Auto-Detect (size-biased edge square) ----
-  function computeGradMag(img, w, h){
-    const mag = new Float32Array(w*h), d=img.data;
-    for (let y=1;y<h-1;y++){
-      for (let x=1;x<w-1;x++){
-        const i=(y*w+x)*4, iL=(y*w+x-1)*4, iR=(y*w+x+1)*4, iT=((y-1)*w+x)*4, iB=((y+1)*w+x)*4;
-        const dx = Math.abs(d[iR]-d[iL]) + Math.abs(d[iR+1]-d[iL+1]) + Math.abs(d[iR+2]-d[iL+2]);
-        const dy = Math.abs(d[iB]-d[iT]) + Math.abs(d[iB+1]-d[iT+1]) + Math.abs(d[iB+2]-d[iT+2]);
-        mag[y*w+x] = dx + dy;
-      }
-    }
-    // light 3x3 blur for stability
-    const out = new Float32Array(w*h);
-    for (let y=1;y<h-1;y++){
-      for (let x=1;x<w-1;x++){
-        let s=0;
-        s += mag[(y-1)*w + (x-1)] + mag[(y-1)*w + x] + mag[(y-1)*w + (x+1)];
-        s += mag[y*w + (x-1)]     + mag[y*w + x]     + mag[y*w + (x+1)];
-        s += mag[(y+1)*w + (x-1)] + mag[(y+1)*w + x] + mag[(y+1)*w + (x+1)];
-        out[y*w+x] = s/9;
-      }
-    }
-    return out;
-  }
-  function integralImage(arr, w, h){
-    const ii = new Float32Array((w+1)*(h+1));
-    for (let y=1;y<=h;y++){
-      let row=0;
-      for (let x=1;x<=w;x++){
-        row += arr[(y-1)*w + (x-1)];
-        ii[y*(w+1)+x] = ii[(y-1)*(w+1)+x] + row;
-      }
-    }
-    return ii;
-  }
-  function sumRect(ii, w, x0,y0,x1,y1){ const W=w+1; return ii[y1*W+x1]-ii[y0*W+x1]-ii[y1*W+x0]+ii[y0*W+x0]; }
-
-  function findBestSquare(ii, w, h){
-    const minWH = Math.min(w,h);
-    const minSide = Math.floor(minWH * 0.45); // bias against tiny windows
-    const maxSide = Math.floor(minWH * 0.92);
-    let best=null, bestScore=-1;
-    for (let s=minSide; s<=maxSide; s+=Math.max(10, (s/12)|0)){
-      const step = Math.max(8, (s/8)|0);
-      const sizeBiasPow = 1.6;
-      const sizeBias = Math.pow(s/minWH, sizeBiasPow); // prefer larger squares if edge density similar
-      for (let y=1; y+s<h; y+=step){
-        for (let x=1; x+s<w; x+=step){
-          const sum = sumRect(ii,w,x,y,x+s,y+s);
-          const edgeDensity = sum / (s*s);
-          const score = edgeDensity * sizeBias;
-          if (score > bestScore){ bestScore=score; best={x,y,s}; }
-        }
-      }
-    }
-    return best;
-  }
-
-  function buildTilesFromSquare(bx, by, bw, bh){
-    const stepX = bw / cols, stepY = bh / rows;
-    const gapRatio = 0.12; // works well across 4×4–6×6; adjust if needed
-    const wTile = stepX * (1 - gapRatio), hTile = stepY * (1 - gapRatio);
-    const gx = stepX - wTile, gy = stepY - hTile;
-    const out = []; let idx=0;
+  function buildTilesFromSquare(bx,by,bw,bh){
+    const stepX=bw/cols, stepY=bh/rows;
+    const gapRatio=0.12;
+    const wTile=stepX*(1-gapRatio), hTile=stepY*(1-gapRatio);
+    const gx=stepX-wTile, gy=stepY-hTile;
+    const out=[]; let idx=0;
     for (let r=0;r<rows;r++){
       for (let c=0;c<cols;c++){
-        const x = bx + c*stepX + gx*0.5;
-        const y = by + r*stepY + gy*0.5;
+        const x=bx + c*stepX + gx*0.5;
+        const y=by + r*stepY + gy*0.5;
         out.push({ x, y, w:wTile, h:hTile, row:r, col:c, index:idx++ });
       }
     }
     return out;
   }
 
-  function autoDetectBoardFromFrame(){
-    if (!video.videoWidth || !video.videoHeight){
-      alert('Video not ready. Start capture and bring the game window into view.');
-      return null;
-    }
-    const scanW = Math.min(1280, video.videoWidth);
-    const scale = scanW / video.videoWidth;
-    const scanH = Math.floor(video.videoHeight * scale);
-    const c = document.createElement('canvas'); c.width=scanW; c.height=scanH;
-    const sctx = c.getContext('2d', { willReadFrequently:true });
-    sctx.drawImage(video,0,0,scanW,scanH);
-    const img = sctx.getImageData(0,0,scanW,scanH);
-
-    const mag = computeGradMag(img, scanW, scanH);
-    const ii = integralImage(mag, scanW, scanH);
-    const win = findBestSquare(ii, scanW, scanH);
-    if (!win){ console.warn('No dense-edge square found'); return null; }
-
-    const pad = Math.floor(win.s * 0.02);
-    const sx = win.x + pad, sy = win.y + pad, ss = win.s - pad*2;
-
-    const bx = sx / scale, by = sy / scale, bw = ss / scale, bh = ss / scale;
-    const tx = buildTilesFromSquare(bx, by, bw, bh);
-    return { boardRect:{x:bx,y:by,w:bw,h:bh}, tileRects: tx };
-  }
-
-  // ---- Overlay ----
-  function drawOverlay(hotIndex=-1, dragRect=null){
-    const vw = video.clientWidth|0, vh = video.clientHeight|0;
+  // Overlay
+  function drawOverlay(hotIndex=-1, dragVis=null){
+    const vw=video.clientWidth|0, vh=video.clientHeight|0;
     overlay.width=vw; overlay.height=vh;
     ctxOv.clearRect(0,0,vw,vh);
     const scaleX = vw / (video.videoWidth||1);
     const scaleY = vh / (video.videoHeight||1);
+
     if (boardRect && video.videoWidth){
       ctxOv.save();
-      ctxOv.strokeStyle='rgba(88,176,255,0.9)';
-      ctxOv.setLineDash([6,4]); ctxOv.lineWidth=2;
+      ctxOv.strokeStyle='rgba(88,176,255,0.9)'; ctxOv.setLineDash([6,4]); ctxOv.lineWidth=2;
       ctxOv.strokeRect(boardRect.x*scaleX, boardRect.y*scaleY, boardRect.w*scaleX, boardRect.h*scaleY);
       ctxOv.restore();
 
-      // tile wireframe
+      // Tiles
       ctxOv.save();
       ctxOv.strokeStyle='rgba(140,200,255,0.28)'; ctxOv.lineWidth=1;
       for (const t of tileRects){
@@ -502,65 +336,62 @@
       }
       ctxOv.restore();
     }
+
     if (typeof hotIndex==='number' && hotIndex>=0 && tileRects[hotIndex] && video.videoWidth){
-      const t = tileRects[hotIndex];
-      ctxOv.save();
-      ctxOv.lineWidth=3; ctxOv.strokeStyle='rgba(45,212,212,0.9)';
+      const t=tileRects[hotIndex];
+      ctxOv.save(); ctxOv.lineWidth=3; ctxOv.strokeStyle='rgba(45,212,212,0.9)';
       ctxOv.shadowColor='rgba(45,212,212,0.6)'; ctxOv.shadowBlur=8;
       ctxOv.strokeRect(t.x*scaleX, t.y*scaleY, t.w*scaleX, t.h*scaleY);
       ctxOv.restore();
     }
-    if (dragRect){
+
+    if (dragVis){
       ctxOv.save();
-      ctxOv.setLineDash([8,6]); ctxOv.lineWidth=2; ctxOv.strokeStyle='rgba(88,176,255,0.9)';
-      ctxOv.fillStyle='rgba(88,176,255,0.12)';
-      ctxOv.fillRect(dragRect.x, dragRect.y, dragRect.w, dragRect.h);
-      ctxOv.strokeRect(dragRect.x, dragRect.y, dragRect.w, dragRect.h);
+      ctxOv.setLineDash([8,6]); ctxOv.lineWidth=2; ctxOv.strokeStyle='rgba(88,176,255,0.95)';
+      ctxOv.fillStyle='rgba(88,176,255,0.14)';
+      ctxOv.fillRect(dragVis.x, dragVis.y, dragVis.w, dragVis.h);
+      ctxOv.strokeRect(dragVis.x, dragVis.y, dragVis.w, dragVis.h);
       ctxOv.restore();
     }
   }
 
   function ensureTileState(){
-    tileState = tileRects.map(() => ({
-      baseline: 0, delta: 0,
-      energyBuf: new Float32Array(config.energyWindow), energySum: 0, eIdx: 0,
-      hold: 0, refractory: 0, belowLow: true, lastHotTs: 0
+    tileState = tileRects.map(()=>({
+      baseline:0, delta:0,
+      energyBuf:new Float32Array(config.energyWindow), energySum:0, eIdx:0,
+      hold:0, refractory:0, belowLow:true, lastHotTs:0
     }));
-    sampleOffsets = tileRects.map((t) => {
-      const pts=[]; const insetX=t.w*0.15, insetY=t.h*0.15, wSpan=t.w*0.70, hSpan=t.h*0.70;
+    sampleOffsets = tileRects.map((t)=>{
+      const pts=[], insetX=t.w*0.15, insetY=t.h*0.15, wSpan=t.w*0.70, hSpan=t.h*0.70;
       for (let yi=0; yi<5; yi++){
         for (let xi=0; xi<5; xi++){
-          const x=insetX + wSpan*(xi/4), y=insetY + hSpan*(yi/4);
-          pts.push([x,y]);
+          pts.push([ insetX + wSpan*(xi/4), insetY + hSpan*(yi/4) ]);
         }
       }
       return pts;
     });
   }
 
-  // ---- Color Masks ----
+  // Color masks
   function isTealRGB(r,g,b){ return g>=96 && b>=96 && g>=1.25*r && b>=1.15*r && g<=1.6*b; }
   function isGreenRGB(r,g,b){ return g>=110 && g>=1.4*r && g>=1.25*b; }
 
-  // ---- Calibration ----
+  // Calibration
   function calibrateBaselines(){
     if (!hasBoard) return;
     const data = readBoardImageData(); if (!data) return;
     for (let i=0;i<tileRects.length;i++){
-      const t = tileRects[i];
-      const avgL = avgTileLuminance(data, t);
-      const st = tileState[i];
-      st.baseline=avgL; st.delta=0; st.energyBuf.fill(0); st.energySum=0; st.eIdx=0;
+      const t=tileRects[i]; const avgL=avgTileLuminance(data,t);
+      const st=tileState[i]; st.baseline=avgL; st.delta=0; st.energyBuf.fill(0); st.energySum=0; st.eIdx=0;
       st.hold=0; st.refractory=0; st.belowLow=true;
     }
     warmupStartTs = performance.now();
   }
 
-  // ---- Frame Processing ----
+  // Frame processing
   function readBoardImageData(){
     if (!boardRect || !video.videoWidth) return null;
-    work.width = Math.max(2, Math.floor(boardRect.w));
-    work.height = Math.max(2, Math.floor(boardRect.h));
+    work.width=Math.max(2, Math.floor(boardRect.w)); work.height=Math.max(2, Math.floor(boardRect.h));
     wctx.drawImage(video, boardRect.x, boardRect.y, boardRect.w, boardRect.h, 0,0, work.width, work.height);
     return wctx.getImageData(0,0,work.width,work.height);
   }
@@ -568,8 +399,7 @@
     const sx=work.width/boardRect.w, sy=work.height/boardRect.h, off=sampleOffsets[t.index];
     let sum=0;
     for (let i=0;i<off.length;i++){
-      const ox = off[i][0]*sx + (t.x-boardRect.x)*sx;
-      const oy = off[i][1]*sy + (t.y-boardRect.y)*sy;
+      const ox=off[i][0]*sx + (t.x-boardRect.x)*sx, oy=off[i][1]*sy + (t.y-boardRect.y)*sy;
       const xi=Math.max(0,Math.min(work.width-1,ox|0)), yi=Math.max(0,Math.min(work.height-1,oy|0));
       const idx=(yi*work.width+xi)*4; sum += luminance(img.data[idx], img.data[idx+1], img.data[idx+2]);
     }
@@ -579,29 +409,26 @@
     const sx=work.width/boardRect.w, sy=work.height/boardRect.h, off=sampleOffsets[t.index];
     let tealHits=0, greenHits=0;
     for (let i=0;i<off.length;i++){
-      const ox = off[i][0]*sx + (t.x-boardRect.x)*sx;
-      const oy = off[i][1]*sy + (t.y-boardRect.y)*sy;
+      const ox=off[i][0]*sx + (t.x-boardRect.x)*sx, oy=off[i][1]*sy + (t.y-boardRect.y)*sy;
       const xi=Math.max(0,Math.min(work.width-1,ox|0)), yi=Math.max(0,Math.min(work.height-1,oy|0));
-      const idx=(yi*work.width+xi)*4;
-      const r=img.data[idx], g=img.data[idx+1], b=img.data[idx+2];
-      if (isTealRGB(r,g,b)) tealHits++;
-      if (isGreenRGB(r,g,b)) greenHits++;
+      const idx=(yi*work.width+xi)*4, r=img.data[idx], g=img.data[idx+1], b=img.data[idx+2];
+      if (isTealRGB(r,g,b)) tealHits++; if (isGreenRGB(r,g,b)) greenHits++;
     }
-    return { teal: tealHits>=3, green: greenHits>=3 };
+    return { teal:tealHits>=3, green:greenHits>=3 };
   }
   function updateEnergy(tsNow,i,delta){
     const st=tileState[i]; const v=Math.max(0, delta-config.thrLow);
-    const old=st.energyBuf[st.eIdx]; st.energyBuf[st.eIdx]=v; st.eIdx=(st.eIdx+1)%config.energyWindow; st.energySum += v-old;
-    const energyThr=(config.thrHigh-config.thrLow)*config.energyScale; return st.energySum >= energyThr;
+    const old=st.energyBuf[st.eIdx]; st.energyBuf[st.eIdx]=v; st.eIdx=(st.eIdx+1)%config.energyWindow; st.energySum+=v-old;
+    const thr=(config.thrHigh-config.thrLow)*config.energyScale; return st.energySum>=thr;
   }
 
   function handleFSMFrame(tsNow, events){
-    const surgeLimit = Math.floor(tileRects.length*config.surgeRejectPct);
-    const totalEvents = events.reveals.length + events.inputs.length;
-    if (totalEvents > surgeLimit){ return { transitioned:false, hot:-1 }; }
+    const surgeLimit=Math.floor(tileRects.length*config.surgeRejectPct);
+    const total=events.reveals.length + events.inputs.length;
+    if (total>surgeLimit){ return {hot:-1}; }
 
-    let transitioned=false, hot=-1;
-    const inWarmup = (tsNow - warmupStartTs) < config.warmupMs;
+    let hot=-1;
+    const inWarmup=(tsNow - warmupStartTs) < config.warmupMs;
 
     switch(phase){
       case 'idle': break;
@@ -609,7 +436,6 @@
         if (!inWarmup && config.requireColorToStartReveal && events.reveals.length>0){
           phase='reveal'; revealSeq=[]; inputSeq=[]; revealStartTs=tsNow; lastClusterTs=tsNow;
           for (const idx of events.reveals){ revealSeq.push(idx); tileState[idx].lastHotTs=tsNow; hot=idx; }
-          transitioned=true;
         }
         break;
       case 'reveal': {
@@ -619,7 +445,7 @@
           lastClusterTs=tsNow;
         }
         if (revealSeq.length>=revealLenExpected || hardElapsed>=config.revealHardTimeoutMs || sinceCluster>=config.clusterGapMs){
-          phase='waiting-input'; inputSeq=[]; inputStartTs=tsNow; transitioned=true;
+          phase='waiting-input'; inputSeq=[]; inputStartTs=tsNow;
         }
         break;
       }
@@ -629,172 +455,164 @@
           for (const idx of events.inputs){ inputSeq.push(idx); tileState[idx].lastHotTs=tsNow; hot=idx; }
         }
         if (inputSeq.length>=revealLenExpected){
-          roundIndex += 1; revealLenExpected = 3 + (roundIndex); phase='rearming'; rearmTs=tsNow; revealSeq=[]; inputSeq=[]; transitioned=true;
+          roundIndex+=1; revealLenExpected=3+(roundIndex); phase='rearming'; rearmTs=tsNow; revealSeq=[]; inputSeq=[];
         }else if (inputElapsed>=config.inputTimeoutMs){
-          phase='rearming'; rearmTs=tsNow; revealSeq=[]; inputSeq=[]; transitioned=true;
+          phase='rearming'; rearmTs=tsNow; revealSeq=[]; inputSeq=[];
         }
         break;
       }
       case 'rearming':
-        if (tsNow - rearmTs >= config.rearmDelayMs){ phase='armed'; transitioned=true; }
+        if (tsNow - rearmTs >= config.rearmDelayMs){ phase='armed'; }
         break;
     }
-    return { transitioned, hot };
+    return { hot };
   }
 
   function processFrame(tsNow){
     if (!hasBoard || !detectionActive) return { hot:-1 };
     const img = readBoardImageData(); if (!img) return { hot:-1 };
-    const tealIndices=[], greenIndices=[];
+    const teal=[], green=[];
     for (let i=0;i<tileRects.length;i++){
       const t=tileRects[i], st=tileState[i];
-      const cls = classifyTileRGB(img,t);
-      const avgL = avgTileLuminance(img,t);
+      const cls=classifyTileRGB(img,t);
+      const avgL=avgTileLuminance(img,t);
       st.baseline = st.baseline*(1-config.emaAlpha) + avgL*config.emaAlpha;
       const delta = st.delta = avgL - st.baseline;
 
-      const inWarmup = (tsNow - warmupStartTs) < config.warmupMs;
+      const inWarmup=(tsNow - warmupStartTs) < config.warmupMs;
       if (inWarmup){ st.belowLow = delta<=config.thrLow; st.hold = (delta>=config.thrHigh)?Math.min(config.holdFrames, st.hold+1):0; continue; }
 
-      if (delta<=config.thrLow){ st.belowLow=true; st.refractory=0; }
-      else { st.belowLow=false; if (st.refractory>0) st.refractory--; }
-
-      st.hold = (delta>=config.thrHigh) ? Math.min(config.holdFrames, st.hold+1) : 0;
-      const byHold = (st.hold >= config.holdFrames);
-      const byEnergy = updateEnergy(tsNow,i,delta);
-      const canTrigger = (st.refractory===0) || st.belowLow;
-      const wants = canTrigger && (byHold || byEnergy);
-
-      if (wants){
-        if (phase==='armed' || phase==='reveal'){
-          if (cls.teal){ tealIndices.push(i); st.refractory=config.refractoryFrames; }
-        }else if (phase==='waiting-input'){
-          if (cls.green){ greenIndices.push(i); st.refractory=config.refractoryFrames; }
-        }
+      if (delta<=config.thrLow){ st.belowLow=true; st.refractory=0; } else { st.belowLow=false; if (st.refractory>0) st.refractory--; }
+      st.hold = (delta>=config.thrHigh)?Math.min(config.holdFrames, st.hold+1):0;
+      const byHold=(st.hold>=config.holdFrames), byEnergy=updateEnergy(tsNow,i,delta);
+      const canTrigger=(st.refractory===0)||st.belowLow;
+      if (canTrigger && (byHold||byEnergy)){
+        if (phase==='armed' || phase==='reveal'){ if (cls.teal){ teal.push(i); st.refractory=config.refractoryFrames; } }
+        else if (phase==='waiting-input'){ if (cls.green){ green.push(i); st.refractory=config.refractoryFrames; } }
       }
     }
-    const res = handleFSMFrame(tsNow, { reveals:tealIndices, inputs:greenIndices });
-    return { hot: res.hot };
+    return handleFSMFrame(tsNow, { reveals:teal, inputs:green });
   }
 
-  // ---- Loop ----
-  function onFrameRaf(){
-    if (!running) return;
-    const tsNow = performance.now();
+  // Loops: separate UI RAF from video rVFC so drag is always smooth
+  function uiLoop(){
+    if (!running){ return; }
+    drawOverlay(-1, drag.active ? visibleSquareRect(drag.rect) : null);
+    requestAnimationFrame(uiLoop);
+  }
+  function videoLoopRaf(){
+    if (!running){ return; }
+    const tsNow=performance.now();
     framesInBucket++; if (tsNow-lastFPSTs>=1000){ elFPS.textContent=String(framesInBucket); framesInBucket=0; lastFPSTs=tsNow; }
     let hot=-1;
     if (detectionActive){ const r=processFrame(tsNow); hot=r.hot; updateStatus(); renderSequence(); }
-    drawOverlay(hot, drag.active?drag.rect:null);
-    requestAnimationFrame(onFrameRaf);
+    // overlay is handled by uiLoop for responsiveness
+    requestAnimationFrame(videoLoopRaf);
   }
-  function onFrame(now){
-    if (!running) return;
+  function videoLoopVFC(now){
+    if (!running){ return; }
     framesInBucket++; if (now-lastFPSTs>=1000){ elFPS.textContent=String(framesInBucket); framesInBucket=0; lastFPSTs=now; }
-    let hot=-1;
-    if (detectionActive){ const r=processFrame(now); hot=r.hot; updateStatus(); renderSequence(); }
-    drawOverlay(hot, drag.active?drag.rect:null);
-    video.requestVideoFrameCallback(onFrame);
+    if (detectionActive){ const r=processFrame(now); updateStatus(); renderSequence(); }
+    video.requestVideoFrameCallback(videoLoopVFC);
   }
-  function startLoop(){
+  function startLoops(){
     lastFPSTs=performance.now(); framesInBucket=0;
-    if (typeof video.requestVideoFrameCallback==='function'){ video.requestVideoFrameCallback(onFrame); }
-    else { requestAnimationFrame(onFrameRaf); }
+    requestAnimationFrame(uiLoop);
+    if (typeof video.requestVideoFrameCallback==='function'){ video.requestVideoFrameCallback(videoLoopVFC); }
+    else { requestAnimationFrame(videoLoopRaf); }
   }
 
-  // ---- Manual Board (drag on overlay) ----
-  const drag = { active:false, startX:0, startY:0, rect:null };
+  // Manual selection
+  const drag={ active:false, startX:0, startY:0, rect:null };
   function setOverlayPointer(on){
     overlay.classList.toggle('pe-auto', on);
     overlay.classList.toggle('pe-none', !on);
   }
   function clampRect(x,y,w,h,maxW,maxH){
-    const x0=Math.max(0, Math.min(maxW, x));
-    const y0=Math.max(0, Math.min(maxH, y));
-    const x1=Math.max(0, Math.min(maxW, x+w));
-    const y1=Math.max(0, Math.min(maxH, y+h));
+    const x0=Math.max(0,Math.min(maxW,x)), y0=Math.max(0,Math.min(maxH,y));
+    const x1=Math.max(0,Math.min(maxW,x+w)), y1=Math.max(0,Math.min(maxH,y+h));
     return { x:Math.min(x0,x1), y:Math.min(y0,y1), w:Math.abs(x1-x0), h:Math.abs(y1-y0) };
   }
+  function squareFromRect(r,maxW,maxH){
+    const cx=r.x + r.w/2, cy=r.y + r.h/2;
+    const side=Math.max(r.w, r.h);
+    let x=cx - side/2, y=cy - side/2, w=side, h=side;
+    if (x<0) x=0; if (y<0) y=0;
+    if (x+w>maxW) x=maxW-w;
+    if (y+h>maxH) y=maxH-h;
+    return { x, y, w, h };
+  }
+  function visibleSquareRect(r){ if (!r) return null; return squareFromRect(r, overlay.width, overlay.height); }
   function displayRectToVideoRect(dr){
-    const vw = overlay.width, vh = overlay.height;
-    const scaleX = (video.videoWidth||1) / vw;
-    const scaleY = (video.videoHeight||1) / vh;
-    return { x: dr.x*scaleX, y: dr.y*scaleY, w: dr.w*scaleX, h: dr.h*scaleY };
+    const vw=overlay.width, vh=overlay.height;
+    const scaleX=(video.videoWidth||1)/vw, scaleY=(video.videoHeight||1)/vh;
+    return { x:dr.x*scaleX, y:dr.y*scaleY, w:dr.w*scaleX, h:dr.h*scaleY };
+  }
+  function beginManual(){
+    if (!video.videoWidth){ alert('Start capture first.'); return; }
+    manualMode=true; setOverlayPointer(true);
+  }
+  function endManualCommit(){
+    const vis = visibleSquareRect(drag.rect);
+    if (!vis || vis.w<20 || vis.h<20){ cancelManual(); return; }
+    const vRect = displayRectToVideoRect(vis);
+    boardRect = { x:vRect.x, y:vRect.y, w:vRect.w, h:vRect.h };
+    tileRects = buildTilesFromSquare(boardRect.x, boardRect.y, boardRect.w, boardRect.h);
+    hasBoard=true; btnEditBoard.disabled=false; btnClearBoard.disabled=false;
+    ensureTileState(); calibrateBaselines();
+    drag.active=false; drag.rect=null; manualMode=false; setOverlayPointer(false);
+    drawOverlay();
+  }
+  function cancelManual(){
+    drag.active=false; drag.rect=null; manualMode=false; setOverlayPointer(false); drawOverlay();
   }
 
   overlay.addEventListener('pointerdown', (e)=>{
     if (!manualMode) return;
+    const rect=overlay.getBoundingClientRect();
     overlay.setPointerCapture(e.pointerId);
     drag.active=true;
-    const rect = overlay.getBoundingClientRect();
-    drag.startX = e.clientX - rect.left;
-    drag.startY = e.clientY - rect.top;
-    drag.rect = { x: drag.startX, y: drag.startY, w: 0, h: 0 };
+    drag.startX=e.clientX-rect.left; drag.startY=e.clientY-rect.top;
+    drag.rect={ x:drag.startX, y:drag.startY, w:0, h:0 };
+    drawOverlay(-1, visibleSquareRect(drag.rect));
   });
   overlay.addEventListener('pointermove', (e)=>{
     if (!manualMode || !drag.active) return;
-    const rect = overlay.getBoundingClientRect();
-    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const rect=overlay.getBoundingClientRect();
+    const x=e.clientX-rect.left, y=e.clientY-rect.top;
     drag.rect = clampRect(drag.startX, drag.startY, x-drag.startX, y-drag.startY, overlay.width, overlay.height);
+    drawOverlay(-1, visibleSquareRect(drag.rect));
   });
-  function finalizeManualRect(){
-    if (!drag.rect || drag.rect.w<20 || drag.rect.h<20){ drag.active=false; drag.rect=null; drawOverlay(); return; }
-    // Convert to video coords, force square by shortest side
-    const sq = { ...drag.rect };
-    const side = Math.min(sq.w, sq.h);
-    sq.w = sq.h = side;
-    const vRect = displayRectToVideoRect(sq);
-    boardRect = { x:vRect.x, y:vRect.y, w:vRect.w, h:vRect.h };
-    tileRects = buildTilesFromSquare(boardRect.x, boardRect.y, boardRect.w, boardRect.h);
-    hasBoard = true;
-    ensureTileState();
-    calibrateBaselines();
-    drag.active=false; drag.rect=null; manualMode=false; setOverlayPointer(false);
-    drawOverlay();
-  }
-  overlay.addEventListener('pointerup', (e)=>{ if (!manualMode) return; finalizeManualRect(); });
-  overlay.addEventListener('pointercancel', (e)=>{ if (!manualMode) return; finalizeManualRect(); });
+  overlay.addEventListener('pointerup', ()=>{ if (!manualMode) return; endManualCommit(); });
+  overlay.addEventListener('pointercancel', ()=>{ if (!manualMode) return; cancelManual(); });
+  window.addEventListener('keydown', (e)=>{ if (manualMode && e.key==='Escape'){ cancelManual(); }})
 
-  // ---- Events ----
+  // Events
   btnCapture.addEventListener('click', startCapture);
   btnStopCapture.addEventListener('click', ()=>{ stopCapture(); resetDetectionState({clearBoard:true}); });
 
-  btnDetectBoard.addEventListener('click', ()=>{
-    const res = autoDetectBoardFromFrame();
-    if (!res){ alert('Board detection failed. Try Manual Board and drag over the grid.'); return; }
-    boardRect = res.boardRect; tileRects = res.tileRects; hasBoard=true;
-    ensureTileState(); calibrateBaselines(); drawOverlay();
-  });
-
-  btnManualBoard.addEventListener('click', ()=>{
-    if (!video.videoWidth){ alert('Start capture first.'); return; }
-    manualMode = true; setOverlayPointer(true);
-  });
-
+  btnSetBoard.addEventListener('click', ()=>{ beginManual(); });
+  btnEditBoard.addEventListener('click', ()=>{ beginManual(); });
   btnClearBoard.addEventListener('click', ()=>{ resetDetectionState({clearBoard:true}); });
 
   btnCalibrate.addEventListener('click', ()=>{
-    if (!hasBoard){ alert('Detect or set the board first.'); return; }
+    if (!hasBoard){ alert('Set the board first.'); return; }
     calibrateBaselines(); updateStatus();
   });
 
   btnStart.addEventListener('click', ()=>{
     if (!stream){ alert('Start capture first.'); return; }
-    if (!hasBoard){ alert('Auto Detect Board or use Manual Board first.'); return; }
+    if (!hasBoard){ alert('Set the board first.'); return; }
     detectionActive=true; phase='armed'; warmupStartTs=performance.now();
     btnStart.disabled=true; btnStop.disabled=false; updateStatus();
   });
-
   btnStop.addEventListener('click', ()=>{ detectionActive=false; phase='idle'; btnStart.disabled=false; btnStop.disabled=true; updateStatus(); });
 
-  selDifficulty.addEventListener('change', ()=>{
-    difficulty = selDifficulty.value; updateGridFromDifficulty(); resetDetectionState({clearBoard:true});
-  });
+  selDifficulty.addEventListener('change', ()=>{ difficulty=selDifficulty.value; updateGridFromDifficulty(); resetDetectionState({clearBoard:true}); });
   btnRestoreDefaults.addEventListener('click', ()=>{ Object.assign(config, defaultConfig); createConfigGrid(); });
 
-  // ---- Init ----
-  updateGridFromDifficulty();
-  createConfigGrid();
-  resetDetectionState({clearBoard:true});
+  // Init
+  updateGridFromDifficulty(); createConfigGrid(); resetDetectionState({clearBoard:true});
 })();
 </script>
 </body>
