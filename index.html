@@ -8,8 +8,8 @@
   :root{
     --navy-900:#0b1220; --navy-850:#0f1a2b; --navy-800:#122036; --navy-750:#152744;
     --blue-500:#3aa0ff; --blue-400:#58b0ff; --blue-300:#8cc8ff;
-    --green-400:#38d677; --green-500:#22c55e;
-    --text-100:#e6eef7; --text-200:#c3d4ea; --muted-400:#7f9bb9; --danger-400:#ff6b6b;
+    --green-400:#38d677; --green-500:#22c55e; --red-400:#ef4444;
+    --text-100:#e6eef7; --text-200:#c3d4ea; --muted-400:#7f9bb9;
     --card-radius:12px; --shadow:0 6px 18px rgba(0,0,0,.35); --mono:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   }
   *{box-sizing:border-box}
@@ -18,7 +18,6 @@
     margin:0; background:radial-gradient(1200px 800px at 20% 0%, var(--navy-800), var(--navy-900));
     color:var(--text-100); font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height:1.4;
   }
-  /* Wider two-pane layout */
   .app{display:grid; grid-template-columns:420px 1fr; gap:16px; padding:16px; height:100dvh}
   .card{
     background:linear-gradient(180deg, var(--navy-800), var(--navy-850));
@@ -36,7 +35,7 @@
   button:hover,select:hover{border-color:var(--blue-400); box-shadow:0 0 0 3px rgba(60,160,255,.15) inset}
   button.primary{background:linear-gradient(180deg,#0d2b4a,#0e2141); border-color:rgba(58,160,255,.7); color:var(--blue-300); font-weight:600}
   button.success{border-color:rgba(56,214,119,.6); color:var(--green-400)}
-  button.warn{border-color:rgba(255,107,107,.5); color:var(--danger-400)}
+  button.warn{border-color:rgba(255,107,107,.5); color:#ff9b9b}
   button.ghost{border-color:rgba(120,170,230,.35); color:var(--text-200)}
   button:disabled{opacity:.55; cursor:not-allowed}
   label{display:block; margin-bottom:6px; color:var(--text-200)}
@@ -64,6 +63,11 @@
   .legend .teal{width:10px; height:10px; background:#2dd4d4; border-radius:2px}
   .legend .green{width:10px; height:10px; background:#22c55e; border-radius:2px}
   .legend .board{width:10px; height:10px; background:transparent; border:1px dashed #58b0ff; border-radius:2px}
+  .guideHeader{
+    position:absolute; left:12px; top:12px; padding:6px 10px; border-radius:10px;
+    background:rgba(10,18,32,0.55); border:1px solid rgba(140,200,255,0.35); backdrop-filter: blur(4px);
+    font-weight:600; color:#cfe6ff; z-index:2; pointer-events:none;
+  }
   @media (max-width:1100px){.app{grid-template-columns:1fr; height:auto}.card-body{max-height:55vh}.preview-wrap{height:55vh}}
 </style>
 </head>
@@ -110,7 +114,7 @@
               <span><i class="board"></i> Board</span>
               <span><i class="teal"></i> Teal (Reveal)</span>
               <span><i class="green"></i> Green (Input)</span>
-              <span>Guide overlay is always on</span>
+              <span>Guide shows only the next tile to press</span>
             </div>
           </div>
 
@@ -142,6 +146,7 @@
     <section class="card">
       <div class="card-header">Preview</div>
       <div class="preview-wrap" id="previewWrap">
+        <div id="guideHeader" class="guideHeader" style="display:none">Step 1 / 1</div>
         <video id="video" autoplay playsinline muted></video>
         <canvas id="overlay" class="overlay pe-none"></canvas>
       </div>
@@ -154,6 +159,7 @@
   const video = document.getElementById('video');
   const overlay = document.getElementById('overlay');
   const previewWrap = document.getElementById('previewWrap');
+  const guideHeader = document.getElementById('guideHeader');
   const ctxOv = overlay.getContext('2d', { alpha: true });
 
   const btnCapture = document.getElementById('btnCapture');
@@ -178,29 +184,24 @@
   const elInputCount = document.getElementById('inputCount');
   const elGridSize = document.getElementById('gridSize');
 
-  // State
+  // Config (timing-focused)
   const defaultConfig = {
-    // Detection
     thrHigh:10, thrLow:6, holdFrames:1, refractoryFrames:6, emaAlpha:0.20,
     energyWindow:5, energyScale:2.5, warmupMs:450, surgeRejectPct:0.4,
-    // Input/reveal timing
     inputTimeoutMs:12000,
-    // New: robust reveal step handling
-    revealStepGapMs:140,        // gap with no teal that closes one step
-    revealEndSilenceMs:700,     // silence after last step that ends reveal phase
-    // De-dup + repeat gating
+    revealStepGapMs:140,
+    revealEndSilenceMs:700,
     dedupeMs:160,
     belowLowFramesToBypass:2,
-    // Rearm between rounds
     rearmDelayMs:120,
-    // Behavior
     requireColorToStartReveal:true
   };
   const config = { ...defaultConfig };
 
-  // Defaults: Expert 6×6
+  // Defaults
   let difficulty='expert', rows=6, cols=6;
 
+  // State
   let stream=null, track=null, running=false, detectionActive=false, hasBoard=false;
 
   let boardRect=null; // in video coords
@@ -214,31 +215,25 @@
   // FSM
   let phase='idle'; // 'idle'|'armed'|'reveal'|'waiting-input'|'rearming'
   let roundIndex=0;       // 0-based
-  let revealSeq=[];       // indices captured during reveal
-  let inputSeq=[];        // indices captured during input
-  let revealLenExpected=3;// set to revealSeq.length at end of reveal
+  let revealSeq=[];       // captured steps
+  let inputSeq=[];        // accepted inputs (strict order)
+  let revealLenExpected=0;
 
   // Timing marks
-  let warmupStartTs=0;
-  let inputStartTs=0;
-  let rearmTs=0;
+  let warmupStartTs=0, inputStartTs=0, rearmTs=0;
 
   // Reveal clusterer
   let stepCluster=null;   // { startTs, tally: Map }
-  let lastTealTs=0;       // last time we saw teal
+  let lastTealTs=0;
 
-  // FPS counters
+  // FPS
   let lastFPSTs=0, framesInBucket=0;
 
-  // Editor (manual board draw/move/resize)
-  const editor = {
-    mode:'idle', // 'idle'|'draw'|'edit'
-    rect:null,
-    activeHandle:null, // 'move'|'nw'|'ne'|'se'|'sw'
-    start:{x:0,y:0},
-    rectStart:null,
-    handleSize:12
-  };
+  // Visual error flash on wrong press
+  let badPressTs=0, badPressTile=-1;
+
+  // Editor
+  const editor = { mode:'idle', rect:null, activeHandle:null, start:{x:0,y:0}, rectStart:null, handleSize:12 };
 
   // Helpers
   function updateGridFromDifficulty(){
@@ -252,19 +247,21 @@
   }
   function resetDetectionState({clearBoard=true}={}){
     detectionActive=false; btnStart.disabled=false; btnStop.disabled=true;
-    phase='idle'; roundIndex=0; revealSeq=[]; inputSeq=[]; revealLenExpected=3;
+    phase='idle'; roundIndex=0; revealSeq=[]; inputSeq=[]; revealLenExpected=0;
     warmupStartTs=performance.now();
-    stepCluster=null; lastTealTs=0;
+    stepCluster=null; lastTealTs=0; badPressTs=0; badPressTile=-1;
+    guideHeader.style.display='none'; guideHeader.textContent='';
     if (clearBoard){
       boardRect=null; tileRects=[]; tileState=[]; sampleOffsets=[]; hasBoard=false;
       btnEditBoard.disabled=true; btnDoneEdit.disabled=true; btnClearBoard.disabled=true;
-      editor.mode='idle'; editor.rect=null; editor.activeHandle=null;
+      Object.assign(editor,{mode:'idle',rect:null,activeHandle:null});
     }
     updateStatus();
   }
   function resetRounds(){
-    roundIndex=0; revealSeq=[]; inputSeq=[]; revealLenExpected=3;
-    phase='armed'; warmupStartTs=performance.now();
+    roundIndex=0; revealSeq=[]; inputSeq=[]; revealLenExpected=0;
+    phase='armed'; warmupStartTs=performance.now(); stepCluster=null; lastTealTs=0;
+    guideHeader.style.display='none'; guideHeader.textContent='';
     updateStatus();
   }
   function updateStatus(){
@@ -274,7 +271,7 @@
     elInputCount.textContent=String(inputSeq.length);
   }
 
-  // Timing UI (only what matters)
+  // Timing UI
   function buildTimingPanel(){
     timingGrid.innerHTML='';
     const fields = [
@@ -282,10 +279,10 @@
       {key:'revealEndSilenceMs', label:'Reveal End Silence (ms)', step:25, min:300, max:2000},
       {key:'dedupeMs', label:'Pulse Dedupe (ms)', step:10, min:60, max:600},
       {key:'belowLowFramesToBypass', label:'Below-Low Frames to Repeat', step:1, min:0, max:12},
-      {key:'rearmDelayMs', label:'Rearm Delay (ms)', step:10, min:30, max:500},
       {key:'holdFrames', label:'Hold Frames', step:1, min:0, max:8},
       {key:'refractoryFrames', label:'Refractory Frames', step:1, min:0, max:20},
       {key:'inputTimeoutMs', label:'Input Timeout (ms)', step:250, min:3000, max:30000},
+      {key:'rearmDelayMs', label:'Rearm Delay (ms)', step:10, min:30, max:500},
     ];
     for (const f of fields){
       const wrap=document.createElement('div');
@@ -296,8 +293,7 @@
       if (f.min!=null) inp.min=String(f.min);
       if (f.max!=null) inp.max=String(f.max);
       inp.addEventListener('change', ()=>{
-        const v=Number(inp.value);
-        if (!Number.isFinite(v)) return;
+        const v=Number(inp.value); if (!Number.isFinite(v)) return;
         config[f.key] = (f.key==='holdFrames'||f.key==='refractoryFrames'||f.key==='belowLowFramesToBypass') ? Math.round(v) : v;
       });
       wrap.appendChild(lab); wrap.appendChild(inp);
@@ -310,8 +306,7 @@
   async function startCapture(){
     try{
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video:{ displaySurface:'window', frameRate:{ideal:60,max:60}, cursor:'never' },
-        audio:false
+        video:{ displaySurface:'window', frameRate:{ideal:60,max:60}, cursor:'never' }, audio:false
       });
       video.srcObject = stream;
       track = stream.getVideoTracks()[0];
@@ -319,20 +314,18 @@
       try{ if ('contentHint' in track) track.contentHint='motion'; }catch(_){}
       btnCapture.disabled=true; btnStopCapture.disabled=false;
       running=true; startLoops();
-    }catch(e){
-      console.error(e); alert('Screen/window capture was not granted.');
-    }
+    }catch(e){ console.error(e); alert('Screen/window capture was not granted.'); }
   }
   function stopCapture(){
     if (stream){ stream.getTracks().forEach(t=>t.stop()); }
-    stream=null; track=null; video.srcObject=null;
-    running=false; btnCapture.disabled=false; btnStopCapture.disabled=true;
+    stream=null; track=null; video.srcObject=null; running=false;
+    btnCapture.disabled=false; btnStopCapture.disabled=true;
   }
 
   // Math
   function luminance(r,g,b){ return 0.2126*r + 0.7152*g + 0.0722*b; }
 
-  // Overlay sizing: match the video’s on-screen box
+  // Overlay sizing
   function updateOverlayBox(){
     const v = video.getBoundingClientRect();
     const p = previewWrap.getBoundingClientRect();
@@ -346,7 +339,7 @@
     if (overlay.height !== h) overlay.height = h;
   }
 
-  // Build tiles from a square board
+  // Tiles
   function buildTilesFromSquare(bx,by,bw,bh){
     const stepX=bw/cols, stepY=bh/rows;
     const gap=0.12;
@@ -363,15 +356,15 @@
     return out;
   }
 
-  // Drawing overlay: board, tiles, guide, editor
+  // Overlay drawing
   function drawOverlay(){
     updateOverlayBox();
 
     const vw=overlay.width, vh=overlay.height;
     ctxOv.clearRect(0,0,vw,vh);
-    const sx = vw/(video.videoWidth||1);
-    const sy = vh/(video.videoHeight||1);
+    const sx = vw/(video.videoWidth||1), sy = vh/(video.videoHeight||1);
 
+    // Board + tiles
     if (boardRect && video.videoWidth){
       ctxOv.save();
       ctxOv.strokeStyle='rgba(88,176,255,0.95)'; ctxOv.setLineDash([6,4]); ctxOv.lineWidth=2;
@@ -386,33 +379,38 @@
       ctxOv.restore();
     }
 
-    // Always-on guide during input
+    // Step-by-step guide during input
     if (phase==='waiting-input' && revealSeq.length>0 && boardRect){
+      const k = inputSeq.length; const N = revealLenExpected;
+      guideHeader.style.display='block';
+      guideHeader.textContent = `Step ${Math.min(k+1,N)} / ${N}`;
+      const nextIdx = revealSeq[k] ?? null;
+
       const now = performance.now();
       const pulse = 0.5 + 0.5*Math.sin(now/180);
-      const nextIdx = revealSeq[inputSeq.length] ?? null;
-      ctxOv.save();
-      ctxOv.textAlign='center'; ctxOv.textBaseline='middle';
-      ctxOv.font='600 13px system-ui, -apple-system, Segoe UI, Roboto';
-
-      for (let i=0;i<revealSeq.length;i++){
-        const t = tileRects[revealSeq[i]]; if (!t) continue;
-        const cx=(t.x+t.w/2)*sx, cy=(t.y+t.h/2)*sy;
-        ctxOv.fillStyle = (i < inputSeq.length) ? 'rgba(34,197,94,0.85)' : 'rgba(88,176,255,0.85)';
-        ctxOv.beginPath(); ctxOv.arc(cx,cy,11,0,Math.PI*2); ctxOv.fill();
-        ctxOv.fillStyle='#0b1220'; ctxOv.fillText(String(i+1), cx, cy);
-      }
-      if (nextIdx!=null){
+      if (nextIdx != null){
         const t = tileRects[nextIdx];
         if (t){
           const x=t.x*sx, y=t.y*sy, w=t.w*sx, h=t.h*sy;
-          ctxOv.lineWidth=3+2*pulse;
-          ctxOv.strokeStyle=`rgba(34,197,94,${0.55+0.35*pulse})`;
-          ctxOv.shadowColor='rgba(34,197,94,0.5)'; ctxOv.shadowBlur=12*pulse;
+          ctxOv.lineWidth = 3 + 2*pulse;
+          ctxOv.strokeStyle = `rgba(34,197,94,${0.55 + 0.35*pulse})`;
+          ctxOv.shadowColor = 'rgba(34,197,94,0.5)'; ctxOv.shadowBlur = 12*pulse;
           ctxOv.strokeRect(x,y,w,h);
         }
       }
-      ctxOv.restore();
+      // wrong press flash (brief red outline)
+      if (badPressTile>=0 && (now - badPressTs) < 350){
+        const t = tileRects[badPressTile];
+        if (t){
+          const x=t.x*sx, y=t.y*sy, w=t.w*sx, h=t.h*sy;
+          ctxOv.lineWidth = 4;
+          ctxOv.strokeStyle = 'rgba(239,68,68,0.9)';
+          ctxOv.shadowColor = 'rgba(239,68,68,0.6)'; ctxOv.shadowBlur = 10;
+          ctxOv.strokeRect(x,y,w,h);
+        }
+      }
+    } else {
+      guideHeader.style.display='none';
     }
 
     // Editor visuals
@@ -472,7 +470,7 @@
     return {x,y,w:startRect.w,h:startRect.h};
   }
 
-  // Tile sampling / classification
+  // Sampling & classification
   function ensureTileState(){
     tileState = tileRects.map(()=>({
       baseline:0, delta:0,
@@ -523,7 +521,7 @@
     const thr=(config.thrHigh-config.thrLow)*config.energyScale; return st.energySum>=thr;
   }
 
-  // Reveal clustering
+  // Reveal clustering helpers
   function addToCluster(tsNow, indices){
     if (indices.length===0) return;
     if (!stepCluster) stepCluster = { startTs: tsNow, tally: new Map() };
@@ -541,11 +539,12 @@
       }
       stepCluster=null;
       if (bestIdx>=0){
-        const st = tileState[bestIdx];
-        const withinWindow = st && ((tsNow - st.lastHotTs) < config.dedupeMs);
-        if (!withinWindow){
+        const st=tileState[bestIdx];
+        const within = st && ((tsNow - st.lastHotTs) < config.dedupeMs);
+        if (!within){
           revealSeq.push(bestIdx);
-          if (st) st.lastHotTs = tsNow;
+          if (st) st.lastHotTs=tsNow;
+          elRevealCount.textContent=String(revealSeq.length);
           return bestIdx;
         }
       }
@@ -556,7 +555,7 @@
     return (revealSeq.length>0) && !stepCluster && ((tsNow - lastTealTs) >= config.revealEndSilenceMs);
   }
 
-  // Main per-frame processing
+  // Frame processing
   function processFrame(tsNow){
     if (!hasBoard || !detectionActive) return;
     const img = readBoardImageData(); if (!img) return;
@@ -586,7 +585,7 @@
       }
     }
 
-    // FSM inline (cluster-based)
+    // FSM
     switch(phase){
       case 'idle': break;
 
@@ -601,35 +600,48 @@
 
       case 'reveal': {
         addToCluster(tsNow, tealIndices);
-        const pushed = maybeFinalizeCluster(tsNow);
-        // End when silence after last teal and cluster closed
+        maybeFinalizeCluster(tsNow);
         if (shouldEndReveal(tsNow)){
           phase='waiting-input';
           inputSeq=[]; inputStartTs=tsNow;
-          revealLenExpected = revealSeq.length; // use actual captured length
+          revealLenExpected = revealSeq.length;
+          // Show header immediately
+          guideHeader.style.display='block';
+          guideHeader.textContent = `Step 1 / ${revealLenExpected}`;
         }
         break;
       }
 
       case 'waiting-input': {
+        const expected = revealSeq[inputSeq.length] ?? -1;
+        const inputElapsed = tsNow - inputStartTs;
+
+        // Only accept the expected tile; ignore others but flash them red
         if (!inWarm && greenIndices.length>0){
-          for (const idx of greenIndices){
-            const lastSame = inputSeq.length>0 && inputSeq[inputSeq.length-1]===idx;
-            const within = (tsNow - tileState[idx].lastHotTs) < config.dedupeMs;
+          if (greenIndices.includes(expected)){
+            // Accept once
+            const lastSame = inputSeq.length>0 && inputSeq[inputSeq.length-1]===expected;
+            const within = (tsNow - tileState[expected].lastHotTs) < config.dedupeMs;
             if (!(lastSame && within)){
-              inputSeq.push(idx);
-              tileState[idx].lastHotTs = tsNow;
+              inputSeq.push(expected);
+              tileState[expected].lastHotTs = tsNow;
+              elInputCount.textContent=String(inputSeq.length);
             }
+          } else {
+            // Wrong press feedback (red)
+            badPressTile = greenIndices[0];
+            badPressTs = tsNow;
           }
         }
-        const inputElapsed = tsNow - inputStartTs;
-        if (inputSeq.length >= revealLenExpected){
+
+        // Progress / completion
+        if (inputSeq.length >= revealLenExpected && revealLenExpected>0){
           roundIndex += 1;
           phase='rearming'; rearmTs=tsNow;
-          // prepare next
-          revealSeq=[]; inputSeq=[];
+          revealSeq=[]; inputSeq=[]; revealLenExpected=0;
+          guideHeader.style.display='none';
         }else if (inputElapsed >= config.inputTimeoutMs){
-          phase='rearming'; rearmTs=tsNow; revealSeq=[]; inputSeq=[];
+          phase='rearming'; rearmTs=tsNow; revealSeq=[]; inputSeq=[]; revealLenExpected=0; guideHeader.style.display='none';
         }
         break;
       }
@@ -641,11 +653,7 @@
   }
 
   // Loops
-  function uiLoop(){
-    if (!running) return;
-    drawOverlay();
-    requestAnimationFrame(uiLoop);
-  }
+  function uiLoop(){ if (!running) return; drawOverlay(); requestAnimationFrame(uiLoop); }
   function videoLoopRaf(){
     if (!running) return;
     const tsNow=performance.now();
@@ -723,8 +731,7 @@
 
   function commitEditorRectToBoard(){
     if (!editor.rect || !video.videoWidth) return;
-    const vw=overlay.width, vh=overlay.height;
-    const sx = (video.videoWidth||1)/vw, sy=(video.videoHeight||1)/vh;
+    const vw=overlay.width, vh=overlay.height, sx=(video.videoWidth||1)/vw, sy=(video.videoHeight||1)/vh;
     const r=editor.rect;
     boardRect={ x:r.x*sx, y:r.y*sy, w:r.w*sx, h:r.h*sy };
     tileRects = buildTilesFromSquare(boardRect.x,boardRect.y,boardRect.w,boardRect.h);
