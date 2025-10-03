@@ -8,7 +8,7 @@
   :root{
     --navy-900:#0b1220; --navy-850:#0f1a2b; --navy-800:#122036; --navy-750:#152744;
     --blue-500:#3aa0ff; --blue-400:#58b0ff; --blue-300:#8cc8ff;
-    --cyan-400:#3af2e8; --green-400:#38d677; --green-500:#22c55e;
+    --green-400:#38d677; --green-500:#22c55e;
     --text-100:#e6eef7; --text-200:#c3d4ea; --muted-400:#7f9bb9; --danger-400:#ff6b6b;
     --card-radius:12px; --shadow:0 6px 18px rgba(0,0,0,.35); --mono:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   }
@@ -18,6 +18,7 @@
     margin:0; background:radial-gradient(1200px 800px at 20% 0%, var(--navy-800), var(--navy-900));
     color:var(--text-100); font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height:1.4;
   }
+  /* Wider two-pane layout */
   .app{display:grid; grid-template-columns:420px 1fr; gap:16px; padding:16px; height:100dvh}
   .card{
     background:linear-gradient(180deg, var(--navy-800), var(--navy-850));
@@ -54,7 +55,7 @@
   .overlay.pe-none{pointer-events:none}
   .overlay.pe-auto{pointer-events:auto}
   .grid{display:grid; gap:10px}
-  .grid.cols-2{grid-template-columns: 1fr 1fr}
+  .grid.cols-2{grid-template-columns:1fr 1fr}
   .divider{height:1px; background:linear-gradient(90deg, transparent, rgba(130,160,210,.25), transparent); margin:8px 0}
   .badge{display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; border:1px solid rgba(90,140,200,.25); color:var(--text-200); font-size:12px; background:linear-gradient(180deg, var(--navy-800), var(--navy-850))}
   .badge .dot{width:8px; height:8px; border-radius:50%; background:var(--blue-500)}
@@ -68,7 +69,7 @@
 </head>
 <body>
   <div class="app">
-    <!-- Left: Controls (wider) -->
+    <!-- Left: Controls -->
     <section class="card">
       <div class="card-header">
         <div>Controls</div>
@@ -109,7 +110,7 @@
               <span><i class="board"></i> Board</span>
               <span><i class="teal"></i> Teal (Reveal)</span>
               <span><i class="green"></i> Green (Input)</span>
-              <span>Guide: numbers + pulsing next tile always shown</span>
+              <span>Guide overlay is always on</span>
             </div>
           </div>
 
@@ -179,20 +180,30 @@
 
   // State
   const defaultConfig = {
+    // Detection
     thrHigh:10, thrLow:6, holdFrames:1, refractoryFrames:6, emaAlpha:0.20,
-    energyWindow:5, energyScale:2.5, requireColorToStartReveal:true, warmupMs:450,
-    surgeRejectPct:0.4, inputTimeoutMs:12000, revealHardTimeoutMs:1800,
-    clusterGapMs:900, rearmDelayMs:120,
-    dedupeMs:160, belowLowFramesToBypass:2
+    energyWindow:5, energyScale:2.5, warmupMs:450, surgeRejectPct:0.4,
+    // Input/reveal timing
+    inputTimeoutMs:12000,
+    // New: robust reveal step handling
+    revealStepGapMs:140,        // gap with no teal that closes one step
+    revealEndSilenceMs:700,     // silence after last step that ends reveal phase
+    // De-dup + repeat gating
+    dedupeMs:160,
+    belowLowFramesToBypass:2,
+    // Rearm between rounds
+    rearmDelayMs:120,
+    // Behavior
+    requireColorToStartReveal:true
   };
   const config = { ...defaultConfig };
 
-  let stream=null, track=null, running=false, detectionActive=false, hasBoard=false;
-
-  // Default to Expert
+  // Defaults: Expert 6×6
   let difficulty='expert', rows=6, cols=6;
 
-  let boardRect=null; // video coords
+  let stream=null, track=null, running=false, detectionActive=false, hasBoard=false;
+
+  let boardRect=null; // in video coords
   let tileRects=[];
 
   const work = document.createElement('canvas');
@@ -201,21 +212,32 @@
   let tileState=[], sampleOffsets=[];
 
   // FSM
-  let phase='idle', roundIndex=0, revealLenExpected=3;
-  let revealSeq=[], inputSeq=[];
-  let warmupStartTs=0, revealStartTs=0, lastClusterTs=0, inputStartTs=0, rearmTs=0;
+  let phase='idle'; // 'idle'|'armed'|'reveal'|'waiting-input'|'rearming'
+  let roundIndex=0;       // 0-based
+  let revealSeq=[];       // indices captured during reveal
+  let inputSeq=[];        // indices captured during input
+  let revealLenExpected=3;// set to revealSeq.length at end of reveal
 
-  // FPS
+  // Timing marks
+  let warmupStartTs=0;
+  let inputStartTs=0;
+  let rearmTs=0;
+
+  // Reveal clusterer
+  let stepCluster=null;   // { startTs, tally: Map }
+  let lastTealTs=0;       // last time we saw teal
+
+  // FPS counters
   let lastFPSTs=0, framesInBucket=0;
 
-  // Editor (draw + handles + move)
+  // Editor (manual board draw/move/resize)
   const editor = {
-    mode: 'idle', // 'idle' | 'draw' | 'edit'
-    rect: null,   // display coords
-    activeHandle: null, // 'move' | 'nw' | 'ne' | 'se' | 'sw'
-    start: {x:0,y:0},
-    rectStart: null,
-    handleSize: 12
+    mode:'idle', // 'idle'|'draw'|'edit'
+    rect:null,
+    activeHandle:null, // 'move'|'nw'|'ne'|'se'|'sw'
+    start:{x:0,y:0},
+    rectStart:null,
+    handleSize:12
   };
 
   // Helpers
@@ -223,16 +245,16 @@
     switch(difficulty){
       case 'easy': rows=4; cols=4; break;
       case 'medium': rows=5; cols=5; break;
-      case 'hard':
-      case 'expert': rows=6; cols=6; break;
+      case 'hard': case 'expert': rows=6; cols=6; break;
       default: rows=6; cols=6;
     }
     elGridSize.textContent = `${cols}×${rows}`;
   }
   function resetDetectionState({clearBoard=true}={}){
     detectionActive=false; btnStart.disabled=false; btnStop.disabled=true;
-    phase='idle'; roundIndex=0; revealLenExpected=3; revealSeq=[]; inputSeq=[];
+    phase='idle'; roundIndex=0; revealSeq=[]; inputSeq=[]; revealLenExpected=3;
     warmupStartTs=performance.now();
+    stepCluster=null; lastTealTs=0;
     if (clearBoard){
       boardRect=null; tileRects=[]; tileState=[]; sampleOffsets=[]; hasBoard=false;
       btnEditBoard.disabled=true; btnDoneEdit.disabled=true; btnClearBoard.disabled=true;
@@ -241,7 +263,7 @@
     updateStatus();
   }
   function resetRounds(){
-    roundIndex=0; revealLenExpected=3; revealSeq=[]; inputSeq=[];
+    roundIndex=0; revealSeq=[]; inputSeq=[]; revealLenExpected=3;
     phase='armed'; warmupStartTs=performance.now();
     updateStatus();
   }
@@ -252,48 +274,44 @@
     elInputCount.textContent=String(inputSeq.length);
   }
 
-  // Timing panel (only timing-related knobs)
+  // Timing UI (only what matters)
   function buildTimingPanel(){
     timingGrid.innerHTML='';
     const fields = [
+      {key:'revealStepGapMs', label:'Step Gap (ms)', step:10, min:80, max:400},
+      {key:'revealEndSilenceMs', label:'Reveal End Silence (ms)', step:25, min:300, max:2000},
       {key:'dedupeMs', label:'Pulse Dedupe (ms)', step:10, min:60, max:600},
       {key:'belowLowFramesToBypass', label:'Below-Low Frames to Repeat', step:1, min:0, max:12},
-      {key:'clusterGapMs', label:'Cluster Gap (ms)', step:50, min:200, max:2000},
-      {key:'revealHardTimeoutMs', label:'Reveal Hard Timeout (ms)', step:50, min:500, max:4000},
-      {key:'inputTimeoutMs', label:'Input Timeout (ms)', step:250, min:3000, max:30000},
       {key:'rearmDelayMs', label:'Rearm Delay (ms)', step:10, min:30, max:500},
       {key:'holdFrames', label:'Hold Frames', step:1, min:0, max:8},
       {key:'refractoryFrames', label:'Refractory Frames', step:1, min:0, max:20},
+      {key:'inputTimeoutMs', label:'Input Timeout (ms)', step:250, min:3000, max:30000},
     ];
     for (const f of fields){
       const wrap=document.createElement('div');
-      const lab=document.createElement('label'); lab.textContent=f.label; lab.htmlFor = `tim_${f.key}`;
+      const lab=document.createElement('label'); lab.textContent=f.label; lab.htmlFor=`tim_${f.key}`;
       const inp=document.createElement('input');
       inp.type='number'; inp.id=`tim_${f.key}`; inp.value=String(config[f.key]);
       if (f.step!=null) inp.step=String(f.step);
       if (f.min!=null) inp.min=String(f.min);
       if (f.max!=null) inp.max=String(f.max);
       inp.addEventListener('change', ()=>{
-        const v = Number(inp.value);
+        const v=Number(inp.value);
         if (!Number.isFinite(v)) return;
-        config[f.key] = (f.key==='holdFrames' || f.key==='refractoryFrames' || f.key==='belowLowFramesToBypass') ? Math.round(v) : v;
+        config[f.key] = (f.key==='holdFrames'||f.key==='refractoryFrames'||f.key==='belowLowFramesToBypass') ? Math.round(v) : v;
       });
       wrap.appendChild(lab); wrap.appendChild(inp);
       timingGrid.appendChild(wrap);
     }
   }
-
-  btnTimingDefaults.addEventListener('click', ()=>{
-    const keep = { warmupMs: config.warmupMs }; // preserve warmup if you tweaked elsewhere
-    Object.assign(config, defaultConfig, keep);
-    buildTimingPanel();
-  });
+  btnTimingDefaults.addEventListener('click', ()=>{ Object.assign(config, defaultConfig); buildTimingPanel(); });
 
   // Capture
   async function startCapture(){
     try{
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video:{ displaySurface:'window', frameRate:{ideal:60,max:60}, cursor:'never' }, audio:false
+        video:{ displaySurface:'window', frameRate:{ideal:60,max:60}, cursor:'never' },
+        audio:false
       });
       video.srcObject = stream;
       track = stream.getVideoTracks()[0];
@@ -301,41 +319,25 @@
       try{ if ('contentHint' in track) track.contentHint='motion'; }catch(_){}
       btnCapture.disabled=true; btnStopCapture.disabled=false;
       running=true; startLoops();
-    }catch(e){ console.error(e); alert('Screen/window capture was not granted.'); }
+    }catch(e){
+      console.error(e); alert('Screen/window capture was not granted.');
+    }
   }
   function stopCapture(){
     if (stream){ stream.getTracks().forEach(t=>t.stop()); }
-    stream=null; track=null; video.srcObject=null; running=false;
-    btnCapture.disabled=false; btnStopCapture.disabled=true;
+    stream=null; track=null; video.srcObject=null;
+    running=false; btnCapture.disabled=false; btnStopCapture.disabled=true;
   }
 
-  // Math / utils
+  // Math
   function luminance(r,g,b){ return 0.2126*r + 0.7152*g + 0.0722*b; }
 
-  function buildTilesFromSquare(bx,by,bw,bh){
-    const stepX=bw/cols, stepY=bh/rows;
-    const gapRatio=0.12;
-    const wTile=stepX*(1-gapRatio), hTile=stepY*(1-gapRatio);
-    const gx=stepX-wTile, gy=stepY-hTile;
-    const out=[]; let idx=0;
-    for (let r=0;r<rows;r++){
-      for (let c=0;c<cols;c++){
-        const x=bx + c*stepX + gx*0.5;
-        const y=by + r*stepY + gy*0.5;
-        out.push({ x, y, w:wTile, h:hTile, row:r, col:c, index:idx++ });
-      }
-    }
-    return out;
-  }
-
-  // Overlay sizing: match the video's on-screen box exactly
+  // Overlay sizing: match the video’s on-screen box
   function updateOverlayBox(){
     const v = video.getBoundingClientRect();
     const p = previewWrap.getBoundingClientRect();
-    const left = v.left - p.left;
-    const top = v.top - p.top;
-    overlay.style.left = left+'px';
-    overlay.style.top = top+'px';
+    overlay.style.left = (v.left - p.left)+'px';
+    overlay.style.top  = (v.top  - p.top )+'px';
     overlay.style.width = v.width+'px';
     overlay.style.height = v.height+'px';
     const w = Math.max(1, Math.round(v.width));
@@ -344,107 +346,98 @@
     if (overlay.height !== h) overlay.height = h;
   }
 
-  // Draw overlay (board, tiles, guide, editor)
+  // Build tiles from a square board
+  function buildTilesFromSquare(bx,by,bw,bh){
+    const stepX=bw/cols, stepY=bh/rows;
+    const gap=0.12;
+    const wTile=stepX*(1-gap), hTile=stepY*(1-gap);
+    const gx=stepX-wTile, gy=stepY-hTile;
+    const out=[]; let idx=0;
+    for (let r=0;r<rows;r++){
+      for (let c=0;c<cols;c++){
+        const x=bx + c*stepX + gx*0.5;
+        const y=by + r*stepY + gy*0.5;
+        out.push({ x,y,w:wTile,h:hTile,row:r,col:c,index:idx++ });
+      }
+    }
+    return out;
+  }
+
+  // Drawing overlay: board, tiles, guide, editor
   function drawOverlay(){
     updateOverlayBox();
 
-    const vw = overlay.width, vh = overlay.height;
+    const vw=overlay.width, vh=overlay.height;
     ctxOv.clearRect(0,0,vw,vh);
+    const sx = vw/(video.videoWidth||1);
+    const sy = vh/(video.videoHeight||1);
 
-    const scaleX = vw / (video.videoWidth||1);
-    const scaleY = vh / (video.videoHeight||1);
-
-    // Board + tiles
     if (boardRect && video.videoWidth){
       ctxOv.save();
       ctxOv.strokeStyle='rgba(88,176,255,0.95)'; ctxOv.setLineDash([6,4]); ctxOv.lineWidth=2;
-      ctxOv.strokeRect(boardRect.x*scaleX, boardRect.y*scaleY, boardRect.w*scaleX, boardRect.h*scaleY);
+      ctxOv.strokeRect(boardRect.x*sx, boardRect.y*sy, boardRect.w*sx, boardRect.h*sy);
       ctxOv.restore();
 
       ctxOv.save();
       ctxOv.strokeStyle='rgba(140,200,255,0.28)'; ctxOv.lineWidth=1;
       for (const t of tileRects){
-        ctxOv.strokeRect(t.x*scaleX, t.y*scaleY, t.w*scaleX, t.h*scaleY);
+        ctxOv.strokeRect(t.x*sx, t.y*sy, t.w*sx, t.h*sy);
       }
       ctxOv.restore();
     }
 
-    // Always-on guidance: numbers + pulsing “next”
-    if (phase === 'waiting-input' && revealSeq.length > 0 && boardRect){
+    // Always-on guide during input
+    if (phase==='waiting-input' && revealSeq.length>0 && boardRect){
       const now = performance.now();
-      const pulse = 0.5 + 0.5*Math.sin(now/180); // 0..1
+      const pulse = 0.5 + 0.5*Math.sin(now/180);
       const nextIdx = revealSeq[inputSeq.length] ?? null;
-
       ctxOv.save();
-      ctxOv.textAlign='center';
-      ctxOv.textBaseline='middle';
+      ctxOv.textAlign='center'; ctxOv.textBaseline='middle';
       ctxOv.font='600 13px system-ui, -apple-system, Segoe UI, Roboto';
 
       for (let i=0;i<revealSeq.length;i++){
-        const tileIdx = revealSeq[i];
-        const t = tileRects[tileIdx];
-        if (!t) continue;
-        const cx = (t.x + t.w/2)*scaleX;
-        const cy = (t.y + t.h/2)*scaleY;
-
+        const t = tileRects[revealSeq[i]]; if (!t) continue;
+        const cx=(t.x+t.w/2)*sx, cy=(t.y+t.h/2)*sy;
         ctxOv.fillStyle = (i < inputSeq.length) ? 'rgba(34,197,94,0.85)' : 'rgba(88,176,255,0.85)';
-        ctxOv.beginPath();
-        ctxOv.arc(cx, cy, 11, 0, Math.PI*2);
-        ctxOv.fill();
-
-        ctxOv.fillStyle = '#0b1220';
-        ctxOv.fillText(String(i+1), cx, cy);
+        ctxOv.beginPath(); ctxOv.arc(cx,cy,11,0,Math.PI*2); ctxOv.fill();
+        ctxOv.fillStyle='#0b1220'; ctxOv.fillText(String(i+1), cx, cy);
       }
-
-      if (nextIdx != null){
+      if (nextIdx!=null){
         const t = tileRects[nextIdx];
         if (t){
-          const x = t.x*scaleX, y = t.y*scaleY, w = t.w*scaleX, h = t.h*scaleY;
-          ctxOv.lineWidth = 3 + 2*pulse;
-          ctxOv.strokeStyle = `rgba(34,197,94,${0.55 + 0.35*pulse})`;
-          ctxOv.shadowColor = 'rgba(34,197,94,0.5)';
-          ctxOv.shadowBlur = 12*pulse;
-          ctxOv.strokeRect(x, y, w, h);
+          const x=t.x*sx, y=t.y*sy, w=t.w*sx, h=t.h*sy;
+          ctxOv.lineWidth=3+2*pulse;
+          ctxOv.strokeStyle=`rgba(34,197,94,${0.55+0.35*pulse})`;
+          ctxOv.shadowColor='rgba(34,197,94,0.5)'; ctxOv.shadowBlur=12*pulse;
+          ctxOv.strokeRect(x,y,w,h);
         }
       }
       ctxOv.restore();
     }
 
     // Editor visuals
-    if (editor.mode === 'draw' && editor.rect){
-      const r = editor.rect;
-      const sq = squareFromRectCentered(r, vw, vh);
+    if (editor.mode==='draw' && editor.rect){
+      const r=editor.rect, sq=squareFromRectCentered(r,vw,vh);
       ctxOv.save();
       ctxOv.setLineDash([8,6]); ctxOv.lineWidth=2; ctxOv.strokeStyle='rgba(88,176,255,0.95)';
-      ctxOv.fillStyle='rgba(88,176,255,0.14)';
-      ctxOv.fillRect(sq.x, sq.y, sq.w, sq.h);
-      ctxOv.strokeRect(sq.x, sq.y, sq.w, sq.h);
+      ctxOv.fillStyle='rgba(88,176,255,0.14)'; ctxOv.fillRect(sq.x,sq.y,sq.w,sq.h); ctxOv.strokeRect(sq.x,sq.y,sq.w,sq.h);
       ctxOv.restore();
     }
-    if (editor.mode === 'edit' && editor.rect){
-      const r = editor.rect;
+    if (editor.mode==='edit' && editor.rect){
+      const r=editor.rect;
       ctxOv.save();
       ctxOv.setLineDash([8,6]); ctxOv.lineWidth=2; ctxOv.strokeStyle='rgba(88,176,255,0.95)';
-      ctxOv.fillStyle='rgba(88,176,255,0.10)';
-      ctxOv.fillRect(r.x, r.y, r.w, r.h);
-      ctxOv.strokeRect(r.x, r.y, r.w, r.h);
+      ctxOv.fillStyle='rgba(88,176,255,0.10)'; ctxOv.fillRect(r.x,r.y,r.w,r.h); ctxOv.strokeRect(r.x,r.y,r.w,r.h);
       ctxOv.restore();
-
-      // handles
-      ctxOv.save();
-      const hs = editor.handleSize;
-      for (const hnd of getHandleRects(r, hs)){
-        ctxOv.fillStyle = 'rgba(88,176,255,0.95)';
-        ctxOv.fillRect(hnd.x, hnd.y, hnd.w, hnd.h);
-        ctxOv.strokeStyle = '#0b1220';
-        ctxOv.lineWidth = 1.5;
-        ctxOv.strokeRect(hnd.x, hnd.y, hnd.w, hnd.h);
+      const hs=editor.handleSize;
+      for (const h of getHandleRects(r,hs)){
+        ctxOv.fillStyle='rgba(88,176,255,0.95)'; ctxOv.fillRect(h.x,h.y,h.w,h.h);
+        ctxOv.strokeStyle='#0b1220'; ctxOv.lineWidth=1.5; ctxOv.strokeRect(h.x,h.y,h.w,h.h);
       }
-      ctxOv.restore();
     }
   }
 
-  function getHandleRects(r, hs){
+  function getHandleRects(r,hs){
     return [
       {name:'nw', x:r.x-hs/2, y:r.y-hs/2, w:hs, h:hs},
       {name:'ne', x:r.x+r.w-hs/2, y:r.y-hs/2, w:hs, h:hs},
@@ -452,75 +445,34 @@
       {name:'sw', x:r.x-hs/2, y:r.y+r.h-hs/2, w:hs, h:hs},
     ];
   }
-  function hitTestHandle(x,y,r,hs){
-    for (const h of getHandleRects(r,hs)){
-      if (x>=h.x && x<=h.x+h.w && y>=h.y && y<=h.y+h.h) return h.name;
-    }
-    return null;
-  }
+  function hitTestHandle(x,y,r,hs){ for (const h of getHandleRects(r,hs)){ if (x>=h.x&&x<=h.x+h.w&&y>=h.y&&y<=h.y+h.h) return h.name; } return null; }
   function pointInRect(x,y,r){ return x>=r.x && x<=r.x+r.w && y>=r.y && y<=r.y+r.h; }
-
   function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
   function clampRect(x0,y0,dx,dy,maxW,maxH){
-    const x1 = clamp(x0+dx, 0, maxW);
-    const y1 = clamp(y0+dy, 0, maxH);
-    const x = clamp(Math.min(x0,x1), 0, maxW);
-    const y = clamp(Math.min(y0,y1), 0, maxH);
-    const w = clamp(Math.abs(x1-x0), 0, maxW - x);
-    const h = clamp(Math.abs(y1-y0), 0, maxH - y);
-    return { x, y, w, h };
+    const x1=clamp(x0+dx,0,maxW), y1=clamp(y0+dy,0,maxH);
+    const x=clamp(Math.min(x0,x1),0,maxW), y=clamp(Math.min(y0,y1),0,maxH);
+    const w=clamp(Math.abs(x1-x0),0,maxW-x), h=clamp(Math.abs(y1-y0),0,maxH-y);
+    return {x,y,w,h};
   }
-
-  // Square helpers (centered snap; side-preserving resize/move)
-  function squareFromRectCentered(r, maxW, maxH){
-    const cx = r.x + r.w/2;
-    const cy = r.y + r.h/2;
-    const side = Math.min(Math.max(r.w,r.h), Math.min(maxW, maxH));
-    let x = cx - side/2, y = cy - side/2;
-    x = clamp(x, 0, maxW - side);
-    y = clamp(y, 0, maxH - side);
-    return { x, y, w: side, h: side };
+  function squareFromRectCentered(r,maxW,maxH){
+    const cx=r.x+r.w/2, cy=r.y+r.h/2, side=Math.min(Math.max(r.w,r.h), Math.min(maxW,maxH));
+    let x=cx-side/2, y=cy-side/2; x=clamp(x,0,maxW-side); y=clamp(y,0,maxH-side);
+    return {x,y,w:side,h:side};
   }
   function squareResizeFromCorner(startRect, handle, dx, dy, maxW, maxH){
-    const minSide = 20;
-    let side = startRect.w; // square
-    let x = startRect.x, y = startRect.y;
-    if (handle === 'se'){
-      const desired = side + Math.max(dx, dy);
-      const maxSide = Math.min(maxW - startRect.x, maxH - startRect.y);
-      side = clamp(desired, minSide, maxSide);
-      x = startRect.x; y = startRect.y;
-    }else if (handle === 'ne'){
-      const desired = side + Math.max(dx, -dy);
-      const maxSide = Math.min(maxW - startRect.x, startRect.y + startRect.h);
-      side = clamp(desired, minSide, maxSide);
-      x = startRect.x; y = (startRect.y + startRect.h) - side;
-      y = clamp(y, 0, maxH - side);
-    }else if (handle === 'nw'){
-      const desired = side + Math.max(-dx, -dy);
-      const maxSide = Math.min(startRect.x + startRect.w, startRect.y + startRect.h);
-      side = clamp(desired, minSide, maxSide);
-      x = (startRect.x + startRect.w) - side;
-      y = (startRect.y + startRect.h) - side;
-      x = clamp(x, 0, maxW - side);
-      y = clamp(y, 0, maxH - side);
-    }else if (handle === 'sw'){
-      const desired = side + Math.max(-dx, dy);
-      const maxSide = Math.min(startRect.x + startRect.w, maxH - startRect.y);
-      side = clamp(desired, minSide, maxSide);
-      x = (startRect.x + startRect.w) - side;
-      y = startRect.y;
-      x = clamp(x, 0, maxW - side);
-    }
-    return { x, y, w: side, h: side };
+    const minSide=20; let side=startRect.w, x=startRect.x, y=startRect.y;
+    if (handle==='se'){ const desired=side+Math.max(dx,dy); const maxSide=Math.min(maxW-startRect.x, maxH-startRect.y); side=clamp(desired,minSide,maxSide); }
+    else if (handle==='ne'){ const desired=side+Math.max(dx,-dy); const maxSide=Math.min(maxW-startRect.x, startRect.y+startRect.h); side=clamp(desired,minSide,maxSide); y=(startRect.y+startRect.h)-side; y=clamp(y,0,maxH-side); }
+    else if (handle==='nw'){ const desired=side+Math.max(-dx,-dy); const maxSide=Math.min(startRect.x+startRect.w, startRect.y+startRect.h); side=clamp(desired,minSide,maxSide); x=(startRect.x+startRect.w)-side; y=(startRect.y+startRect.h)-side; x=clamp(x,0,maxW-side); y=clamp(y,0,maxH-side); }
+    else if (handle==='sw'){ const desired=side+Math.max(-dx,dy); const maxSide=Math.min(startRect.x+startRect.w, maxH-startRect.y); side=clamp(desired,minSide,maxSide); x=(startRect.x+startRect.w)-side; x=clamp(x,0,maxW-side); }
+    return {x,y,w:side,h:side};
   }
-  function squareMove(startRect, dx, dy, maxW, maxH){
-    const x = clamp(startRect.x + dx, 0, maxW - startRect.w);
-    const y = clamp(startRect.y + dy, 0, maxH - startRect.h);
-    return { x, y, w: startRect.w, h: startRect.h };
+  function squareMove(startRect,dx,dy,maxW,maxH){
+    const x=clamp(startRect.x+dx,0,maxW-startRect.w), y=clamp(startRect.y+dy,0,maxH-startRect.h);
+    return {x,y,w:startRect.w,h:startRect.h};
   }
 
-  // Tile sampling / detection
+  // Tile sampling / classification
   function ensureTileState(){
     tileState = tileRects.map(()=>({
       baseline:0, delta:0,
@@ -530,33 +482,17 @@
     }));
     sampleOffsets = tileRects.map((t)=>{
       const pts=[], insetX=t.w*0.15, insetY=t.h*0.15, wSpan=t.w*0.70, hSpan=t.h*0.70;
-      for (let yi=0; yi<5; yi++){
-        for (let xi=0; xi<5; xi++){
-          pts.push([ insetX + wSpan*(xi/4), insetY + hSpan*(yi/4) ]);
-        }
-      }
+      for (let yi=0; yi<5; yi++){ for (let xi=0; xi<5; xi++){ pts.push([insetX+wSpan*(xi/4), insetY+hSpan*(yi/4)]); } }
       return pts;
     });
   }
-
   function isTealRGB(r,g,b){ return g>=96 && b>=96 && g>=1.25*r && b>=1.15*r && g<=1.6*b; }
   function isGreenRGB(r,g,b){ return g>=110 && g>=1.4*r && g>=1.25*b; }
 
-  function calibrateBaselines(){
-    if (!hasBoard) return;
-    const data = readBoardImageData(); if (!data) return;
-    for (let i=0;i<tileRects.length;i++){
-      const t=tileRects[i]; const avgL=avgTileLuminance(data,t);
-      const st=tileState[i]; st.baseline=avgL; st.delta=0; st.energyBuf.fill(0); st.energySum=0; st.eIdx=0;
-      st.hold=0; st.refractory=0; st.lowCount=0; st.belowLow=true;
-    }
-    warmupStartTs = performance.now();
-  }
-
   function readBoardImageData(){
     if (!boardRect || !video.videoWidth) return null;
-    work.width=Math.max(2, Math.floor(boardRect.w)); work.height=Math.max(2, Math.floor(boardRect.h));
-    wctx.drawImage(video, boardRect.x, boardRect.y, boardRect.w, boardRect.h, 0,0, work.width, work.height);
+    work.width=Math.max(2,Math.floor(boardRect.w)); work.height=Math.max(2,Math.floor(boardRect.h));
+    wctx.drawImage(video, boardRect.x,boardRect.y,boardRect.w,boardRect.h, 0,0, work.width,work.height);
     return wctx.getImageData(0,0,work.width,work.height);
   }
   function avgTileLuminance(img,t){
@@ -571,14 +507,15 @@
   }
   function classifyTileRGB(img,t){
     const sx=work.width/boardRect.w, sy=work.height/boardRect.h, off=sampleOffsets[t.index];
-    let tealHits=0, greenHits=0;
+    let teal=0, green=0;
     for (let i=0;i<off.length;i++){
       const ox=off[i][0]*sx + (t.x-boardRect.x)*sx, oy=off[i][1]*sy + (t.y-boardRect.y)*sy;
       const xi=Math.max(0,Math.min(work.width-1,ox|0)), yi=Math.max(0,Math.min(work.height-1,oy|0));
       const idx=(yi*work.width+xi)*4, r=img.data[idx], g=img.data[idx+1], b=img.data[idx+2];
-      if (isTealRGB(r,g,b)) tealHits++; if (isGreenRGB(r,g,b)) greenHits++;
+      if (isTealRGB(r,g,b)) teal++;
+      if (isGreenRGB(r,g,b)) green++;
     }
-    return { teal:tealHits>=3, green:greenHits>=3 };
+    return { teal: teal>=3, green: green>=3 };
   }
   function updateEnergy(tsNow,i,delta){
     const st=tileState[i]; const v=Math.max(0, delta-config.thrLow);
@@ -586,125 +523,138 @@
     const thr=(config.thrHigh-config.thrLow)*config.energyScale; return st.energySum>=thr;
   }
 
-  // FSM helpers with de-dupe guard
-  function pushRevealIfUnique(idx, tsNow){
-    const lastSame = revealSeq.length>0 && revealSeq[revealSeq.length-1] === idx;
-    const withinWindow = (tsNow - tileState[idx].lastHotTs) < config.dedupeMs;
-    if (lastSame && withinWindow) return false;
-    revealSeq.push(idx);
-    tileState[idx].lastHotTs = tsNow;
-    return true;
+  // Reveal clustering
+  function addToCluster(tsNow, indices){
+    if (indices.length===0) return;
+    if (!stepCluster) stepCluster = { startTs: tsNow, tally: new Map() };
+    for (const idx of indices){
+      stepCluster.tally.set(idx, (stepCluster.tally.get(idx)||0)+1);
+    }
+    lastTealTs = tsNow;
   }
-  function pushInputIfUnique(idx, tsNow){
-    const lastSame = inputSeq.length>0 && inputSeq[inputSeq.length-1] === idx;
-    const withinWindow = (tsNow - tileState[idx].lastHotTs) < config.dedupeMs;
-    if (lastSame && withinWindow) return false;
-    inputSeq.push(idx);
-    tileState[idx].lastHotTs = tsNow;
-    return true;
+  function maybeFinalizeCluster(tsNow){
+    if (!stepCluster) return -1;
+    if ((tsNow - lastTealTs) >= config.revealStepGapMs){
+      let bestIdx=-1, bestCount=-1;
+      for (const [idx,count] of stepCluster.tally){
+        if (count>bestCount){ bestCount=count; bestIdx=idx; }
+      }
+      stepCluster=null;
+      if (bestIdx>=0){
+        const st = tileState[bestIdx];
+        const withinWindow = st && ((tsNow - st.lastHotTs) < config.dedupeMs);
+        if (!withinWindow){
+          revealSeq.push(bestIdx);
+          if (st) st.lastHotTs = tsNow;
+          return bestIdx;
+        }
+      }
+    }
+    return -1;
+  }
+  function shouldEndReveal(tsNow){
+    return (revealSeq.length>0) && !stepCluster && ((tsNow - lastTealTs) >= config.revealEndSilenceMs);
   }
 
-  function handleFSMFrame(tsNow, events){
-    const surgeLimit=Math.floor(tileRects.length*config.surgeRejectPct);
-    const total=events.reveals.length + events.inputs.length;
-    if (total>surgeLimit){ return {hot:-1}; }
+  // Main per-frame processing
+  function processFrame(tsNow){
+    if (!hasBoard || !detectionActive) return;
+    const img = readBoardImageData(); if (!img) return;
 
-    let hot=-1;
-    const inWarmup=(tsNow - warmupStartTs) < config.warmupMs;
+    const tealIndices=[], greenIndices=[];
+    const inWarm = (tsNow - warmupStartTs) < config.warmupMs;
 
+    for (let i=0;i<tileRects.length;i++){
+      const t=tileRects[i], st=tileState[i];
+      const cls=classifyTileRGB(img,t);
+      const avg=avgTileLuminance(img,t);
+      st.baseline = st.baseline*(1-config.emaAlpha) + avg*config.emaAlpha;
+      const delta = st.delta = avg - st.baseline;
+
+      if (inWarm){ st.belowLow = delta<=config.thrLow; st.hold=(delta>=config.thrHigh)?Math.min(config.holdFrames, st.hold+1):0; continue; }
+
+      if (delta<=config.thrLow){ st.belowLow=true; st.lowCount=Math.min(255, st.lowCount+1); st.refractory=0; }
+      else { st.belowLow=false; st.lowCount=0; if (st.refractory>0) st.refractory--; }
+      st.hold=(delta>=config.thrHigh)?Math.min(config.holdFrames, st.hold+1):0;
+      const byHold=(st.hold>=config.holdFrames), byEnergy=updateEnergy(tsNow,i,delta);
+      const canRepeatBypass = st.lowCount >= config.belowLowFramesToBypass;
+      const canTrigger = (st.refractory===0) || canRepeatBypass;
+
+      if (canTrigger && (byHold||byEnergy)){
+        if (phase==='armed' || phase==='reveal'){ if (cls.teal){ tealIndices.push(i); st.refractory=config.refractoryFrames; } }
+        else if (phase==='waiting-input'){ if (cls.green){ greenIndices.push(i); st.refractory=config.refractoryFrames; } }
+      }
+    }
+
+    // FSM inline (cluster-based)
     switch(phase){
       case 'idle': break;
+
       case 'armed':
-        if (!inWarmup && config.requireColorToStartReveal && events.reveals.length>0){
-          phase='reveal'; revealSeq=[]; inputSeq=[]; revealStartTs=tsNow; lastClusterTs=tsNow;
-          for (const idx of events.reveals){
-            if (pushRevealIfUnique(idx, tsNow)) hot=idx;
-          }
+        if (!inWarm && config.requireColorToStartReveal && tealIndices.length>0){
+          phase='reveal';
+          revealSeq=[]; inputSeq=[];
+          stepCluster=null; lastTealTs=tsNow;
+          addToCluster(tsNow, tealIndices);
         }
         break;
+
       case 'reveal': {
-        const hardElapsed=tsNow-revealStartTs, sinceCluster=tsNow-lastClusterTs;
-        if (!inWarmup && events.reveals.length>0){
-          for (const idx of events.reveals){
-            if (pushRevealIfUnique(idx, tsNow)) hot=idx;
-          }
-          lastClusterTs=tsNow;
-        }
-        if (revealSeq.length>=revealLenExpected || hardElapsed>=config.revealHardTimeoutMs || sinceCluster>=config.clusterGapMs){
-          phase='waiting-input'; inputSeq=[]; inputStartTs=tsNow;
+        addToCluster(tsNow, tealIndices);
+        const pushed = maybeFinalizeCluster(tsNow);
+        // End when silence after last teal and cluster closed
+        if (shouldEndReveal(tsNow)){
+          phase='waiting-input';
+          inputSeq=[]; inputStartTs=tsNow;
+          revealLenExpected = revealSeq.length; // use actual captured length
         }
         break;
       }
+
       case 'waiting-input': {
-        const inputElapsed=tsNow-inputStartTs;
-        if (!inWarmup && events.inputs.length>0){
-          for (const idx of events.inputs){
-            if (pushInputIfUnique(idx, tsNow)) hot=idx;
+        if (!inWarm && greenIndices.length>0){
+          for (const idx of greenIndices){
+            const lastSame = inputSeq.length>0 && inputSeq[inputSeq.length-1]===idx;
+            const within = (tsNow - tileState[idx].lastHotTs) < config.dedupeMs;
+            if (!(lastSame && within)){
+              inputSeq.push(idx);
+              tileState[idx].lastHotTs = tsNow;
+            }
           }
         }
-        if (inputSeq.length>=revealLenExpected){
-          roundIndex+=1; revealLenExpected=3+(roundIndex); phase='rearming'; rearmTs=tsNow; revealSeq=[]; inputSeq=[];
-        }else if (inputElapsed>=config.inputTimeoutMs){
+        const inputElapsed = tsNow - inputStartTs;
+        if (inputSeq.length >= revealLenExpected){
+          roundIndex += 1;
+          phase='rearming'; rearmTs=tsNow;
+          // prepare next
+          revealSeq=[]; inputSeq=[];
+        }else if (inputElapsed >= config.inputTimeoutMs){
           phase='rearming'; rearmTs=tsNow; revealSeq=[]; inputSeq=[];
         }
         break;
       }
+
       case 'rearming':
-        if (tsNow - rearmTs >= config.rearmDelayMs){ phase='armed'; }
+        if (tsNow - rearmTs >= config.rearmDelayMs){ phase='armed'; warmupStartTs=tsNow; }
         break;
     }
-    return { hot };
-  }
-
-  function processFrame(tsNow){
-    if (!hasBoard || !detectionActive) return { hot:-1 };
-    const img = readBoardImageData(); if (!img) return { hot:-1 };
-    const teal=[], green=[];
-    for (let i=0;i<tileRects.length;i++){
-      const t=tileRects[i], st=tileState[i];
-      const cls=classifyTileRGB(img,t);
-      const avgL=avgTileLuminance(img,t);
-      st.baseline = st.baseline*(1-config.emaAlpha) + avgL*config.emaAlpha;
-      const delta = st.delta = avgL - st.baseline;
-
-      const inWarmup=(tsNow - warmupStartTs) < config.warmupMs;
-      if (inWarmup){ st.belowLow = delta<=config.thrLow; st.hold = (delta>=config.thrHigh)?Math.min(config.holdFrames, st.hold+1):0; continue; }
-
-      if (delta<=config.thrLow){ st.belowLow=true; st.lowCount = Math.min(255, st.lowCount+1); st.refractory=0; }
-      else { st.belowLow=false; st.lowCount=0; if (st.refractory>0) st.refractory--; }
-
-      st.hold = (delta>=config.thrHigh)?Math.min(config.holdFrames, st.hold+1):0;
-      const byHold=(st.hold>=config.holdFrames), byEnergy=updateEnergy(tsNow,i,delta);
-
-      const canRepeatBypass = st.lowCount >= config.belowLowFramesToBypass;
-      const canTrigger = (st.refractory===0) || canRepeatBypass;
-
-      if (canTrigger && (byHold || byEnergy)){
-        if (phase==='armed' || phase==='reveal'){
-          if (cls.teal){ teal.push(i); st.refractory=config.refractoryFrames; }
-        }else if (phase==='waiting-input'){
-          if (cls.green){ green.push(i); st.refractory=config.refractoryFrames; }
-        }
-      }
-    }
-    return handleFSMFrame(tsNow, { reveals:teal, inputs:green });
   }
 
   // Loops
   function uiLoop(){
-    if (!running){ return; }
-    drawOverlay(); // overlay/guide/editor every frame
+    if (!running) return;
+    drawOverlay();
     requestAnimationFrame(uiLoop);
   }
   function videoLoopRaf(){
-    if (!running){ return; }
+    if (!running) return;
     const tsNow=performance.now();
     framesInBucket++; if (tsNow-lastFPSTs>=1000){ elFPS.textContent=String(framesInBucket); framesInBucket=0; lastFPSTs=tsNow; }
     if (detectionActive){ processFrame(tsNow); updateStatus(); }
     requestAnimationFrame(videoLoopRaf);
   }
   function videoLoopVFC(now){
-    if (!running){ return; }
+    if (!running) return;
     framesInBucket++; if (now-lastFPSTs>=1000){ elFPS.textContent=String(framesInBucket); framesInBucket=0; lastFPSTs=now; }
     if (detectionActive){ processFrame(now); updateStatus(); }
     video.requestVideoFrameCallback(videoLoopVFC);
@@ -724,86 +674,62 @@
     overlay.classList.toggle('pe-auto', on);
     overlay.classList.toggle('pe-none', !on);
   }
-
   overlay.addEventListener('pointerdown', (e)=>{
     if (editor.mode==='idle') return;
     overlay.setPointerCapture(e.pointerId);
-    const cr = overlay.getBoundingClientRect();
-    const x = e.clientX - cr.left;
-    const y = e.clientY - cr.top;
-    editor.start = { x, y };
-    if (editor.mode==='draw'){
-      editor.rect = { x, y, w: 0, h: 0 };
-    }else if (editor.mode==='edit'){
-      const h = hitTestHandle(x, y, editor.rect, editor.handleSize);
-      if (h){ editor.activeHandle = h; editor.rectStart = { ...editor.rect }; }
-      else if (pointInRect(x,y,editor.rect)){ editor.activeHandle = 'move'; editor.rectStart = { ...editor.rect }; }
-      else { editor.activeHandle = null; }
+    const cr=overlay.getBoundingClientRect();
+    const x=e.clientX-cr.left, y=e.clientY-cr.top;
+    editor.start={x,y};
+    if (editor.mode==='draw'){ editor.rect={x,y,w:0,h:0}; }
+    else if (editor.mode==='edit'){
+      const h=hitTestHandle(x,y,editor.rect,editor.handleSize);
+      if (h){ editor.activeHandle=h; editor.rectStart={...editor.rect}; }
+      else if (pointInRect(x,y,editor.rect)){ editor.activeHandle='move'; editor.rectStart={...editor.rect}; }
+      else { editor.activeHandle=null; }
     }
     drawOverlay();
   });
-
   overlay.addEventListener('pointermove', (e)=>{
     if (editor.mode==='idle') return;
-    const cr = overlay.getBoundingClientRect();
-    const x = e.clientX - cr.left;
-    const y = e.clientY - cr.top;
-    const dx = x - editor.start.x;
-    const dy = y - editor.start.y;
-    const maxW = overlay.width, maxH = overlay.height;
-
+    const cr=overlay.getBoundingClientRect();
+    const x=e.clientX-cr.left, y=e.clientY-cr.top;
+    const dx=x-editor.start.x, dy=y-editor.start.y;
+    const maxW=overlay.width, maxH=overlay.height;
     if (editor.mode==='draw' && editor.rect){
-      editor.rect = clampRect(editor.start.x, editor.start.y, dx, dy, maxW, maxH);
+      editor.rect = clampRect(editor.start.x,editor.start.y,dx,dy,maxW,maxH);
     }else if (editor.mode==='edit' && editor.rect && editor.activeHandle){
-      if (editor.activeHandle === 'move'){
-        editor.rect = squareMove(editor.rectStart, dx, dy, maxW, maxH);
-      }else{
-        editor.rect = squareResizeFromCorner(editor.rectStart, editor.activeHandle, dx, dy, maxW, maxH);
-      }
+      if (editor.activeHandle==='move') editor.rect = squareMove(editor.rectStart,dx,dy,maxW,maxH);
+      else editor.rect = squareResizeFromCorner(editor.rectStart,editor.activeHandle,dx,dy,maxW,maxH);
     }
     drawOverlay();
   });
-
   overlay.addEventListener('pointerup', ()=>{
     if (editor.mode==='draw' && editor.rect){
-      const sq = squareFromRectCentered(editor.rect, overlay.width, overlay.height);
-      editor.rect = sq;
-      editor.mode = 'edit';
-      btnDoneEdit.disabled = false;
-      drawOverlay();
-    }else if (editor.mode==='edit'){
-      editor.activeHandle = null;
-      drawOverlay();
-    }
+      editor.rect = squareFromRectCentered(editor.rect, overlay.width, overlay.height);
+      editor.mode='edit'; btnDoneEdit.disabled=false; drawOverlay();
+    }else if (editor.mode==='edit'){ editor.activeHandle=null; drawOverlay(); }
   });
   overlay.addEventListener('pointercancel', ()=>{ editor.activeHandle=null; drawOverlay(); });
-
-  // Keyboard nudges in edit mode
   window.addEventListener('keydown', (e)=>{
     if (editor.mode!=='edit' || !editor.rect) return;
-    const step = e.shiftKey ? 10 : 1;
-    let r = editor.rect;
-    if (e.key==='ArrowLeft'){ r = squareMove(r, -step, 0, overlay.width, overlay.height); }
-    else if (e.key==='ArrowRight'){ r = squareMove(r, step, 0, overlay.width, overlay.height); }
-    else if (e.key==='ArrowUp'){ r = squareMove(r, 0, -step, overlay.width, overlay.height); }
-    else if (e.key==='ArrowDown'){ r = squareMove(r, 0, step, overlay.width, overlay.height); }
+    const step=e.shiftKey?10:1;
+    if (e.key==='ArrowLeft') editor.rect=squareMove(editor.rect,-step,0,overlay.width,overlay.height);
+    else if (e.key==='ArrowRight') editor.rect=squareMove(editor.rect,step,0,overlay.width,overlay.height);
+    else if (e.key==='ArrowUp') editor.rect=squareMove(editor.rect,0,-step,overlay.width,overlay.height);
+    else if (e.key==='ArrowDown') editor.rect=squareMove(editor.rect,0,step,overlay.width,overlay.height);
     else if (e.key==='Escape'){ editor.mode='idle'; setOverlayPointer(false); btnDoneEdit.disabled=true; }
-    editor.rect = r; drawOverlay();
+    drawOverlay();
   });
 
   function commitEditorRectToBoard(){
     if (!editor.rect || !video.videoWidth) return;
-    const vw = overlay.width, vh = overlay.height;
-    const scaleX = (video.videoWidth||1) / vw;
-    const scaleY = (video.videoHeight||1) / vh;
-    const r = editor.rect;
-    boardRect = { x: r.x*scaleX, y: r.y*scaleY, w: r.w*scaleX, h: r.h*scaleY };
-    tileRects = buildTilesFromSquare(boardRect.x, boardRect.y, boardRect.w, boardRect.h);
-    hasBoard = true;
-    ensureTileState();
-    calibrateBaselines();
-    btnEditBoard.disabled = false;
-    btnClearBoard.disabled = false;
+    const vw=overlay.width, vh=overlay.height;
+    const sx = (video.videoWidth||1)/vw, sy=(video.videoHeight||1)/vh;
+    const r=editor.rect;
+    boardRect={ x:r.x*sx, y:r.y*sy, w:r.w*sx, h:r.h*sy };
+    tileRects = buildTilesFromSquare(boardRect.x,boardRect.y,boardRect.w,boardRect.h);
+    hasBoard=true; ensureTileState(); calibrateBaselines();
+    btnEditBoard.disabled=false; btnClearBoard.disabled=false;
   }
 
   // Events
@@ -816,22 +742,14 @@
   });
   btnEditBoard.addEventListener('click', ()=>{
     if (!boardRect){ alert('Set the board first.'); return; }
-    const vw=overlay.width, vh=overlay.height;
-    const sx = vw/(video.videoWidth||1), sy = vh/(video.videoHeight||1);
-    editor.rect = { x: boardRect.x*sx, y: boardRect.y*sy, w: boardRect.w*sx, h: boardRect.h*sy };
-    editor.mode='edit'; setOverlayPointer(true); btnDoneEdit.disabled=false;
+    const vw=overlay.width, vh=overlay.height, sx=vw/(video.videoWidth||1), sy=vh/(video.videoHeight||1);
+    editor.rect={ x:boardRect.x*sx, y:boardRect.y*sy, w:boardRect.w*sx, h:boardRect.h*sy };
+    editor.mode='edit'; setOverlayPointer(true); btnDoneEdit.disabled=false; drawOverlay();
   });
-  btnDoneEdit.addEventListener('click', ()=>{
-    if (editor.mode!=='edit' || !editor.rect){ return; }
-    commitEditorRectToBoard();
-    editor.mode='idle'; setOverlayPointer(false); btnDoneEdit.disabled=true; drawOverlay();
-  });
+  btnDoneEdit.addEventListener('click', ()=>{ if (editor.mode==='edit'){ commitEditorRectToBoard(); editor.mode='idle'; setOverlayPointer(false); btnDoneEdit.disabled=true; drawOverlay(); }});
   btnClearBoard.addEventListener('click', ()=>{ resetDetectionState({clearBoard:true}); drawOverlay(); });
 
-  btnCalibrate.addEventListener('click', ()=>{
-    if (!hasBoard){ alert('Set the board first.'); return; }
-    calibrateBaselines(); updateStatus();
-  });
+  btnCalibrate.addEventListener('click', ()=>{ if (!hasBoard){ alert('Set the board first.'); return; } calibrateBaselines(); updateStatus(); });
 
   btnStart.addEventListener('click', ()=>{
     if (!stream){ alert('Start capture first.'); return; }
@@ -852,6 +770,18 @@
 
   const ro = new ResizeObserver(()=> updateOverlayBox());
   ro.observe(previewWrap);
+
+  // Calibration baseline helper
+  function calibrateBaselines(){
+    if (!hasBoard) return;
+    const data = readBoardImageData(); if (!data) return;
+    for (let i=0;i<tileRects.length;i++){
+      const t=tileRects[i]; const avg=avgTileLuminance(data,t);
+      const st=tileState[i]; st.baseline=avg; st.delta=0; st.energyBuf.fill(0); st.energySum=0; st.eIdx=0;
+      st.hold=0; st.refractory=0; st.lowCount=0; st.belowLow=true; st.lastHotTs=0;
+    }
+    warmupStartTs = performance.now();
+  }
 })();
 </script>
 </body>
