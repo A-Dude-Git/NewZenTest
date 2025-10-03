@@ -51,7 +51,11 @@
   .status strong{color:var(--text-100)}
   .preview-wrap{position:relative; width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:radial-gradient(800px 600px at 50% 0%, #0e1a2e, #0b1220)}
   video{max-width:100%; max-height:100%; border-radius:10px; border:1px solid rgba(80,130,200,.25); background:#000}
-  canvas.overlay{position:absolute}
+  canvas.overlay{
+    position:absolute;
+    z-index:3;           /* ensure above the video and guide */
+    touch-action:none;   /* prevent touch gestures from hijacking pointer */
+  }
   .overlay.pe-none{pointer-events:none}
   .overlay.pe-auto{pointer-events:auto}
   .grid{display:grid; gap:10px}
@@ -60,7 +64,7 @@
   .divider{height:1px; background:linear-gradient(90deg, transparent, rgba(130,160,210,.25), transparent); margin:8px 0}
   .badge{display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; border:1px solid rgba(90,140,200,.25); color:var(--text-200); font-size:12px; background:linear-gradient(180deg, var(--navy-800), var(--navy-850))}
   .badge .dot{width:8px; height:8px; border-radius:50%; background:var(--blue-500)}
-  .legend{display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; color:var(--muted-400); font-size:12px}
+  .legend{display:flex; gap:10px; flex-wrap:wrap; margin-top:6px; color:var(--muted-400); font-size:12px}
   .legend span{display:inline-flex; align-items:center; gap:6px}
   .legend .teal{width:10px; height:10px; background:#2dd4d4; border-radius:2px}
   .legend .green{width:10px; height:10px; background:#22c55e; border-radius:2px}
@@ -115,7 +119,7 @@
               <option value="hard">Hard (6×6)</option>
               <option value="expert" selected>Expert (6×6)</option>
             </select>
-            <div class="legend" style="margin-top:6px">
+            <div class="legend">
               <span><i class="board"></i> Board</span>
               <span><i class="teal"></i> Teal (Reveal)</span>
               <span><i class="green"></i> Green (Input)</span>
@@ -228,13 +232,13 @@
   const elInputCount = document.getElementById('inputCount');
   const elGridSize = document.getElementById('gridSize');
 
-  // Stable defaults + new Min Split
+  // Stable defaults + Min Split (for ordering)
   const defaultConfig = {
     thrHigh:10, thrLow:6, holdFrames:1, refractoryFrames:6, emaAlpha:0.20,
     energyWindow:5, energyScale:2.5, warmupMs:450, surgeRejectPct:0.4,
-    revealStepGapMs:140,      // gap to close a step
-    revealEndSilenceMs:700,   // silence to end reveal
-    minStepSplitMs:90,        // NEW: earliest split threshold between steps
+    revealStepGapMs:140,
+    revealEndSilenceMs:700,
+    minStepSplitMs:90,          // NEW: adaptive split threshold
     dedupeMs:160,
     belowLowFramesToBypass:2,
     inputTimeoutMs:12000,
@@ -290,11 +294,11 @@
   // Editor
   const editor = { mode:'idle', rect:null, activeHandle:null, start:{x:0,y:0}, rectStart:null, handleSize:12 };
 
-  // Utils
+  // Helpers
   function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
   function luminance(r,g,b){ return 0.2126*r + 0.7152*g + 0.0722*b; }
 
-  // Overlay sizing
+  // Overlay sizing: match the video box
   function updateOverlayBox(){
     const v = video.getBoundingClientRect();
     const p = previewWrap.getBoundingClientRect();
@@ -306,6 +310,13 @@
     const h = Math.max(1, Math.round(v.height));
     if (overlay.width !== w) overlay.width = w;
     if (overlay.height !== h) overlay.height = h;
+  }
+
+  // Pointer toggling for overlay
+  function setOverlayPointer(on){
+    overlay.classList.toggle('pe-auto', on);
+    overlay.classList.toggle('pe-none', !on);
+    overlay.style.cursor = on ? 'crosshair' : 'default';
   }
 
   // Grid + UI
@@ -336,6 +347,7 @@
       btnEditBoard.disabled=true; btnDoneEdit.disabled=true; btnClearBoard.disabled=true;
       Object.assign(editor,{mode:'idle',rect:null,activeHandle:null});
     }
+    setOverlayPointer(false);
     updateStatus();
   }
   function resetRounds(){
@@ -415,28 +427,25 @@
     const thr=(config.thrHigh-config.thrLow)*config.energyScale; return st.energySum>=thr;
   }
 
-  // Reveal clustering (earliest-wins + adaptive split)
+  // Reveal clustering (single-winner + earliest-wins + adaptive split)
   function addToCluster(tsNow, indices){
     if (!indices || indices.length===0) return;
     const idx = indices[0]; // single-winner per frame
     if (!stepCluster){
       stepCluster = { startTs: tsNow, tally: new Map(), firstSeen: new Map(), leadIdx: idx };
     }
-
-    // Adaptive split: if a new tile appears after minStepSplitMs, close current step and start next
+    // Adaptive split
     if (stepCluster.leadIdx !== idx && (tsNow - stepCluster.startTs) >= config.minStepSplitMs){
       finalizeCluster(tsNow);
       stepCluster = { startTs: tsNow, tally: new Map(), firstSeen: new Map(), leadIdx: idx };
     }
-
     stepCluster.tally.set(idx, (stepCluster.tally.get(idx)||0)+1);
     if (!stepCluster.firstSeen.has(idx)) stepCluster.firstSeen.set(idx, tsNow);
     lastTealTs = tsNow;
   }
   function finalizeCluster(tsNow){
     if (!stepCluster) return -1;
-
-    // Earliest-wins
+    // Earliest-wins fallback to most-votes
     let bestIdx=-1, bestTs=Infinity, bestCount=-1;
     for (const [idx, ts] of stepCluster.firstSeen.entries()){
       if (ts < bestTs){ bestTs = ts; bestIdx = idx; }
@@ -446,7 +455,6 @@
         if (count > bestCount){ bestCount = count; bestIdx = idx; }
       }
     }
-
     stepCluster = null;
     if (bestIdx >= 0){
       const st=tileState[bestIdx];
@@ -879,15 +887,32 @@
 
   btnSetBoard.addEventListener('click', ()=>{
     if (!video.videoWidth){ alert('Start capture first.'); return; }
-    editor.mode='draw'; editor.rect=null; overlay.classList.add('pe-auto'); btnDoneEdit.disabled=true;
+    updateOverlayBox();         // ensure overlay matches video
+    editor.mode='draw';
+    editor.rect=null;
+    setOverlayPointer(true);    // enable clicks + crosshair
+    btnDoneEdit.disabled=true;
+    drawOverlay();
   });
   btnEditBoard.addEventListener('click', ()=>{
     if (!boardRect){ alert('Set the board first.'); return; }
+    updateOverlayBox();
     const vw=overlay.width, vh=overlay.height, sx=vw/(video.videoWidth||1), sy=vh/(video.videoHeight||1);
     editor.rect={ x:boardRect.x*sx, y:boardRect.y*sy, w:boardRect.w*sx, h:boardRect.h*sy };
-    editor.mode='edit'; overlay.classList.add('pe-auto'); btnDoneEdit.disabled=false; drawOverlay();
+    editor.mode='edit';
+    setOverlayPointer(true);
+    btnDoneEdit.disabled=false;
+    drawOverlay();
   });
-  btnDoneEdit.addEventListener('click', ()=>{ if (editor.mode==='edit'){ commitEditorRectToBoard(); editor.mode='idle'; overlay.classList.remove('pe-auto'); btnDoneEdit.disabled=true; drawOverlay(); }});
+  btnDoneEdit.addEventListener('click', ()=>{
+    if (editor.mode==='edit'){
+      commitEditorRectToBoard();
+      editor.mode='idle';
+      setOverlayPointer(false);
+      btnDoneEdit.disabled=true;
+      drawOverlay();
+    }
+  });
   btnClearBoard.addEventListener('click', ()=>{ resetDetectionState({clearBoard:true}); drawOverlay(); });
 
   btnCalibrate.addEventListener('click', ()=>{ if (!hasBoard){ alert('Set the board first.'); return; } calibrateBaselines(); updateStatus(); });
@@ -911,13 +936,65 @@
   ckDbgLabels.addEventListener('change', ()=>{ debug.overlayLabels = ckDbgLabels.checked; });
   selDbgView.addEventListener('change', ()=>{ debug.view = selDbgView.value; });
 
+  // Editor pointer handlers
+  overlay.addEventListener('pointerdown', (e)=>{
+    if (editor.mode==='idle') return;
+    overlay.setPointerCapture(e.pointerId);
+    const cr=overlay.getBoundingClientRect();
+    const x=e.clientX-cr.left, y=e.clientY-cr.top;
+    editor.start={x,y};
+    if (editor.mode==='draw'){ editor.rect={x,y,w:0,h:0}; }
+    else if (editor.mode==='edit'){
+      const h=hitTestHandle(x,y,editor.rect,editor.handleSize);
+      if (h){ editor.activeHandle=h; editor.rectStart={...editor.rect}; }
+      else if (pointInRect(x,y,editor.rect)){ editor.activeHandle='move'; editor.rectStart={...editor.rect}; }
+      else { editor.activeHandle=null; }
+    }
+    drawOverlay();
+  });
+  overlay.addEventListener('pointermove', (e)=>{
+    if (editor.mode==='idle') return;
+    const cr=overlay.getBoundingClientRect();
+    const x=e.clientX-cr.left, y=e.clientY-cr.top;
+    const dx=x-editor.start.x, dy=y-editor.start.y;
+    const maxW=overlay.width, maxH=overlay.height;
+    if (editor.mode==='draw' && editor.rect){
+      editor.rect = clampRect(editor.start.x,editor.start.y,dx,dy,maxW,maxH);
+    }else if (editor.mode==='edit' && editor.rect && editor.activeHandle){
+      if (editor.activeHandle==='move') editor.rect = squareMove(editor.rectStart,dx,dy,maxW,maxH);
+      else editor.rect = squareResizeFromCorner(editor.rectStart,editor.activeHandle,dx,dy,maxW,maxH);
+    }
+    drawOverlay();
+  });
+  overlay.addEventListener('pointerup', ()=>{
+    if (editor.mode==='draw' && editor.rect){
+      editor.rect = squareFromRectCentered(editor.rect, overlay.width, overlay.height);
+      editor.mode='edit'; btnDoneEdit.disabled=false; drawOverlay();
+    }else if (editor.mode==='edit'){ editor.activeHandle=null; drawOverlay(); }
+  });
+  overlay.addEventListener('pointercancel', ()=>{ editor.activeHandle=null; drawOverlay(); });
+  window.addEventListener('keydown', (e)=>{
+    if (editor.mode!=='edit' || !editor.rect) return;
+    const step=e.shiftKey?10:1;
+    if (e.key==='ArrowLeft') editor.rect=squareMove(editor.rect,-step,0,overlay.width,overlay.height);
+    else if (e.key==='ArrowRight') editor.rect=squareMove(editor.rect,step,0,overlay.width,overlay.height);
+    else if (e.key==='ArrowUp') editor.rect=squareMove(editor.rect,0,-step,overlay.width,overlay.height);
+    else if (e.key==='ArrowDown') editor.rect=squareMove(editor.rect,0,step,overlay.width,overlay.height);
+    else if (e.key==='Escape'){
+      editor.mode='idle';
+      setOverlayPointer(false);
+      btnDoneEdit.disabled=true;
+    }
+    drawOverlay();
+  });
+
   // Timing panel
   function buildTimingPanel(){
     timingGrid.innerHTML='';
     const fields = [
       {key:'revealStepGapMs', label:'Step Gap (ms)', step:10, min:80, max:400},
       {key:'revealEndSilenceMs', label:'Reveal End Silence (ms)', step:25, min:300, max:2000},
-      {key:'minStepSplitMs', label:'Min Split (ms)', step:5, min:40, max:200},           // NEW
+      {key:'minStepSplitMs', label:'Min Split (ms)', step:5, min:40, max:200},     // NEW
       {key:'dedupeMs', label:'Pulse Dedupe (ms)', step:10, min:60, max:600},
       {key:'belowLowFramesToBypass', label:'Below-Low Frames to Repeat', step:1, min:0, max:12},
       {key:'holdFrames', label:'Hold Frames', step:1, min:0, max:8},
