@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Zen Solver</title>
+<style>
+  :root{
+    --navy-900: #0b1220;
+    --navy-850: #0f1a2b;
+    --navy-800: #122036;
+    --navy-750: #152744;
+    --navy-700: #1a3054;
+    --blue-500: #3aa0ff;
+    --blue-400: #58b0ff;
+    --blue-300: #8cc8ff;
+    --cyan-400: #3af2e8;
+    --green-400:#38d677;
+    --text-100: #e6eef7;
+    --text-200: #c3d4ea;
+    --muted-400:#7f9bb9;
+    --danger-400: #ff6b6b;
+    --card-radius: 12px;
+    --shadow: 0 6px 18px rgba(0,0,0,0.35);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html,body { height:100%; }
+  body{
+    margin:0;
+    background: radial-gradient(1200px 800px at 20% 0%, var(--navy-800), var(--navy-900));
+    color: var(--text-100);
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+    line-height:1.4;
+  }
+
+  .app{
+    display:grid;
+    grid-template-columns: 320px 1fr 320px;
+    gap:16px;
+    padding:16px;
+    height:100dvh;
+  }
+
+  .card{
+    background: linear-gradient(180deg, var(--navy-800), var(--navy-850));
+    border:1px solid rgba(90,140,200,0.15);
+    border-radius: var(--card-radius);
+    box-shadow: var(--shadow);
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+  }
+
+  .card-header{
+    padding:12px 14px;
+    border-bottom:1px solid rgba(120,170,230,0.15);
+    font-weight:600;
+    color: var(--blue-300);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+  }
+
+  .card-body{
+    padding:14px;
+    overflow:auto;
+  }
+
+  .controls{
+    display:grid;
+    gap:12px;
+  }
+
+  .row{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    align-items:center;
+  }
+
+  button, select{
+    background: linear-gradient(180deg, var(--navy-750), var(--navy-800));
+    border:1px solid rgba(80,130,200,0.25);
+    color: var(--text-100);
+    border-radius:10px;
+    padding:10px 12px;
+    font-size:14px;
+    cursor:pointer;
+    transition: all .15s ease;
+  }
+
+  button:hover, select:hover{
+    border-color: var(--blue-400);
+    box-shadow: 0 0 0 3px rgba(60, 160, 255, 0.15) inset;
+  }
+
+  button.primary{
+    background: linear-gradient(180deg, #0d2b4a, #0e2141);
+    border-color: rgba(58,160,255,0.7);
+    color: var(--blue-300);
+    font-weight:600;
+  }
+
+  button.success{
+    border-color: rgba(56,214,119,0.6);
+    color: var(--green-400);
+  }
+
+  button.warn{
+    border-color: rgba(255,107,107,0.5);
+    color: var(--danger-400);
+  }
+
+  button:disabled{
+    opacity:0.55;
+    cursor:not-allowed;
+  }
+
+  label{
+    display:block;
+    margin-bottom:6px;
+    color: var(--text-200);
+  }
+
+  .status{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:8px;
+    margin-top:8px;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .status div{
+    padding:8px;
+    background: linear-gradient(180deg, var(--navy-800), var(--navy-850));
+    border:1px solid rgba(90,140,200,0.2);
+    border-radius:8px;
+    color: var(--text-200);
+  }
+  .status strong{
+    color: var(--text-100);
+  }
+
+  .preview-wrap{
+    position:relative;
+    width:100%;
+    height:100%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background: radial-gradient(800px 600px at 50% 0%, #0e1a2e, #0b1220);
+  }
+
+  video{
+    max-width:100%;
+    max-height:100%;
+    border-radius: 10px;
+    border:1px solid rgba(80,130,200,0.25);
+    background:#000;
+  }
+
+  canvas.overlay{
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+  }
+
+  .list{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+
+  .step{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:8px 10px;
+    background: linear-gradient(180deg, var(--navy-800), var(--navy-850));
+    border:1px solid rgba(90,140,200,0.2);
+    border-radius:8px;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .hint{
+    color: var(--muted-400);
+    font-size: 13px;
+  }
+
+  .grid{
+    display:grid;
+    gap: 10px;
+  }
+  .grid.cols-3{
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .divider{
+    height:1px;
+    background: linear-gradient(90deg, transparent, rgba(130,160,210,0.25), transparent);
+    margin:8px 0;
+  }
+
+  .badge{
+    display:inline-flex; align-items:center; gap:6px;
+    padding:4px 8px; border-radius:999px; border:1px solid rgba(90,140,200,0.25);
+    color: var(--text-200); font-size: 12px; background: linear-gradient(180deg, var(--navy-800), var(--navy-850));
+  }
+  .badge .dot{ width:8px; height:8px; border-radius:50%; background: var(--blue-500); }
+
+  .legend{
+    display:flex; gap:10px; flex-wrap:wrap;
+    margin-top:8px; color: var(--muted-400); font-size: 12px;
+  }
+  .legend span{ display:inline-flex; align-items:center; gap:6px; }
+  .legend .teal{ width:10px; height:10px; background: #2dd4d4; border-radius:2px; }
+  .legend .green{ width:10px; height:10px; background: #22c55e; border-radius:2px; }
+  .legend .board{ width:10px; height:10px; background: transparent; border:1px dashed #58b0ff; border-radius:2px; }
+
+  @media (max-width: 1100px){
+    .app{ grid-template-columns: 1fr; height:auto; }
+    .card-body{ max-height: 50vh; }
+    .preview-wrap{ height: 50vh; }
+  }
+</style>
+</head>
+<body>
+  <div class="app">
+    <!-- Left: Controls -->
+    <section class="card">
+      <div class="card-header">
+        <div>Controls</div>
+        <div class="badge"><span class="dot"></span> Zen Solver</div>
+      </div>
+      <div class="card-body">
+        <div class="controls">
+          <div class="row">
+            <button id="btnCapture" class="primary">Start Capture</button>
+            <button id="btnStopCapture" class="warn" disabled>Stop Capture</button>
+          </div>
+          <div class="row">
+            <button id="btnDetectBoard" class="">Auto Detect Board</button>
+            <button id="btnCalibrate" class="">Calibrate</button>
+          </div>
+          <div class="row">
+            <button id="btnStart" class="success">Start Detection</button>
+            <button id="btnStop" class="warn" disabled>Stop Detection</button>
+          </div>
+
+          <div class="divider"></div>
+
+          <div>
+            <label for="difficulty">Difficulty</label>
+            <select id="difficulty">
+              <option value="easy">Easy (4×4)</option>
+              <option value="medium" selected>Medium (5×5)</option>
+              <option value="hard">Hard (6×6)</option>
+              <option value="expert">Expert (6×6)</option>
+            </select>
+            <div class="hint">Changing difficulty clears state and requires board re-detection.</div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div>
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <label>Detector Config</label>
+              <button id="btnRestoreDefaults" title="Restore Defaults">Restore Defaults</button>
+            </div>
+            <div class="grid cols-3" id="configGrid"></div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="status" id="status">
+            <div>FPS: <strong id="fps">0</strong></div>
+            <div>Phase: <strong id="phase">idle</strong></div>
+            <div>Round: <strong id="round">1</strong></div>
+            <div>Reveal: <strong id="revealCount">0</strong></div>
+            <div>Input: <strong id="inputCount">0</strong></div>
+            <div>Grid: <strong id="gridSize">5×5</strong></div>
+          </div>
+
+          <div class="legend">
+            <span><i class="board"></i> Board</span>
+            <span><i class="teal"></i> Teal (Reveal)</span>
+            <span><i class="green"></i> Green (Input)</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Center: Video + Overlay -->
+    <section class="card">
+      <div class="card-header">Preview</div>
+      <div class="preview-wrap">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="overlay" class="overlay"></canvas>
+      </div>
+    </section>
+
+    <!-- Right: Pattern View -->
+    <section class="card">
+      <div class="card-header">
+        <div>Pattern</div>
+        <div class="badge"><span>Input</span> <span id="inputProgress">0 / 3</span></div>
+      </div>
+      <div class="card-body">
+        <div id="sequence" class="list">
+          <div class="hint">Detected sequence appears here as (row, col) and index. Repeats are kept.</div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+<script>
+(function(){
+  // ---------------- Types (JS doc-like) ----------------
+  /**
+   * Rect-like: {x,y,w,h}
+   * TileRect: {x,y,w,h,row,col,index}
+   * Phase: 'idle' | 'armed' | 'reveal' | 'waiting-input' | 'rearming'
+   */
+
+  // ---------------- DOM ----------------
+  const video = document.getElementById('video');
+  const overlay = document.getElementById('overlay');
+  const ctxOv = overlay.getContext('2d', { alpha: true });
+
+  const btnCapture = document.getElementById('btnCapture');
+  const btnStopCapture = document.getElementById('btnStopCapture');
+  const btnDetectBoard = document.getElementById('btnDetectBoard');
+  const btnCalibrate = document.getElementById('btnCalibrate');
+  const btnStart = document.getElementById('btnStart');
+  const btnStop = document.getElementById('btnStop');
+
+  const selDifficulty = document.getElementById('difficulty');
+  const btnRestoreDefaults = document.getElementById('btnRestoreDefaults');
+  const configGrid = document.getElementById('configGrid');
+
+  const elFPS = document.getElementById('fps');
+  const elPhase = document.getElementById('phase');
+  const elRound = document.getElementById('round');
+  const elRevealCount = document.getElementById('revealCount');
+  const elInputCount = document.getElementById('inputCount');
+  const elGridSize = document.getElementById('gridSize');
+  const elInputProgress = document.getElementById('inputProgress');
+  const elSequence = document.getElementById('sequence');
+
+  // ---------------- State ----------------
+  const defaultConfig = {
+    thrHigh: 10,
+    thrLow: 6,
+    holdFrames: 1,
+    refractoryFrames: 6,
+    emaAlpha: 0.20,
+    energyWindow: 5,
+    energyScale: 2.5,
+    requireColorToStartReveal: true,
+    warmupMs: 450,
+    surgeRejectPct: 0.4,
+    inputTimeoutMs: 12000,
+    revealHardTimeoutMs: 1800,
+    clusterGapMs: 900,
+    rearmDelayMs: 120,
+  };
+
+  let stream = null;
+  let track = null;
+  let running = false; // capture loop running
+  let detectionActive = false;
+  let hasBoard = false;
+
+  let difficulty = 'medium'; // easy=4x4, medium=5x5, hard=6x6, expert=6x6
+  let rows = 5, cols = 5;
+
+  /** @type {{x:number, y:number, w:number, h:number}|null} */
+  let boardRect = null;
+  /** @type {Array<{x:number, y:number, w:number, h:number, row:number, col:number, index:number}>} */
+  let tileRects = [];
+
+  // Offscreen work canvas for board area
+  const work = document.createElement('canvas');
+  const wctx = work.getContext('2d', { willReadFrequently: true });
+
+  // Per-tile state arrays aligned with tileRects index
+  let tileState = [];
+  let sampleOffsets = []; // precomputed 5x5 offsets per tile, relative to tile x,y
+
+  // FSM
+  let phase = 'idle'; // 'idle'|'armed'|'reveal'|'waiting-input'|'rearming'
+  let roundIndex = 0; // 0-based; Round shown is roundIndex+1
+  let revealLenExpected = 3; // Round N length = 3 + (N-1)
+  /** Reveal sequence (tile indices) */
+  let revealSeq = [];
+  /** Input sequence (tile indices) */
+  let inputSeq = [];
+
+  // Timing
+  let warmupStartTs = 0;
+  let revealStartTs = 0;
+  let lastClusterTs = 0;
+  let inputStartTs = 0;
+  let rearmTs = 0;
+
+  // FPS
+  let lastFPSTs = 0;
+  let framesInBucket = 0;
+
+  // Config (mutable)
+  const config = { ...defaultConfig };
+
+  // ---------------- UI Helpers ----------------
+  function updateGridFromDifficulty(){
+    switch(difficulty){
+      case 'easy': rows = 4; cols = 4; break;
+      case 'medium': rows = 5; cols = 5; break;
+      case 'hard': rows = 6; cols = 6; break;
+      case 'expert': rows = 6; cols = 6; break;
+      default: rows = 5; cols = 5;
+    }
+    elGridSize.textContent = `${cols}×${rows}`;
+  }
+
+  function resetDetectionState({clearBoard=true} = {}){
+    // Stop active detection
+    detectionActive = false;
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+
+    // FSM reset
+    phase = 'idle';
+    roundIndex = 0;
+    revealLenExpected = 3 + (roundIndex); // = 3
+    revealSeq = [];
+    inputSeq = [];
+    warmupStartTs = performance.now();
+
+    // Board reset
+    if (clearBoard){
+      boardRect = null;
+      tileRects = [];
+      hasBoard = false;
+      tileState = [];
+      sampleOffsets = [];
+    }
+    updateStatus();
+    renderSequence();
+    drawOverlay();
+  }
+
+  function updateStatus(){
+    elPhase.textContent = phase;
+    elRound.textContent = String(roundIndex + 1);
+    elRevealCount.textContent = String(revealSeq.length);
+    elInputCount.textContent = String(inputSeq.length);
+    elInputProgress.textContent = `${inputSeq.length} / ${revealLenExpected}`;
+  }
+
+  function renderSequence(){
+    elSequence.innerHTML = '';
+    if (revealSeq.length === 0 && inputSeq.length === 0){
+      const d = document.createElement('div');
+      d.className = 'hint';
+      d.textContent = 'Detected sequence appears here as (row, col) and index. Repeats are kept.';
+      elSequence.appendChild(d);
+      return;
+    }
+    let i = 0;
+    for (const idx of revealSeq){
+      const t = tileRects[idx];
+      const row = t ? t.row+1 : '?';
+      const col = t ? t.col+1 : '?';
+      const div = document.createElement('div');
+      div.className = 'step';
+      div.innerHTML = `<span>#${(++i)} — (r${row}, c${col})</span><span>idx ${idx}</span>`;
+      elSequence.appendChild(div);
+    }
+  }
+
+  function createConfigGrid(){
+    // We'll expose read-only labels for required values to prevent accidental misconfig while allowing Restore Defaults to demonstrate the values.
+    configGrid.innerHTML = '';
+    const entries = [
+      ['thrHigh', config.thrHigh], ['thrLow', config.thrLow],
+      ['holdFrames', config.holdFrames], ['refractoryFrames', config.refractoryFrames],
+      ['emaAlpha', config.emaAlpha], ['energyWindow', config.energyWindow],
+      ['energyScale', config.energyScale], ['requireColorToStartReveal', String(config.requireColorToStartReveal)],
+      ['warmupMs', config.warmupMs], ['surgeRejectPct', config.surgeRejectPct],
+      ['inputTimeoutMs', config.inputTimeoutMs], ['revealHardTimeoutMs', config.revealHardTimeoutMs],
+      ['clusterGapMs', config.clusterGapMs], ['rearmDelayMs', config.rearmDelayMs]
+    ];
+    for (const [k, v] of entries){
+      const wrap = document.createElement('div');
+      const lab = document.createElement('div');
+      lab.style.color = 'var(--muted-400)';
+      lab.style.fontSize = '12px';
+      lab.textContent = k;
+      const val = document.createElement('div');
+      val.style.fontFamily = 'var(--mono)';
+      val.style.fontVariantNumeric = 'tabular-nums';
+      val.textContent = String(v);
+      wrap.appendChild(lab);
+      wrap.appendChild(val);
+      configGrid.appendChild(wrap);
+    }
+  }
+
+  // ---------------- Capture ----------------
+  async function startCapture(){
+    try{
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          displaySurface: 'window',
+          frameRate: { ideal: 60, max: 60 },
+          cursor: 'never'
+        },
+        audio: false
+      });
+      video.srcObject = stream;
+      track = stream.getVideoTracks()[0];
+      // Constraints and content hint
+      try{
+        await track.applyConstraints({ frameRate: { ideal: 60, max: 60 } });
+      }catch(e){}
+      try{
+        if ('contentHint' in track) track.contentHint = 'motion';
+      }catch(e){}
+
+      btnCapture.disabled = true;
+      btnStopCapture.disabled = false;
+
+      // Start loop
+      running = true;
+      startLoop();
+    }catch(err){
+      console.error('Capture failed', err);
+      alert('Screen/window capture was not granted.');
+    }
+  }
+
+  function stopCapture(){
+    if (stream){
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+      track = null;
+    }
+    video.srcObject = null;
+    running = false;
+    btnCapture.disabled = false;
+    btnStopCapture.disabled = true;
+  }
+
+  // ---------------- Board Detection ----------------
+  function luminance(r,g,b){ return 0.2126*r + 0.7152*g + 0.0722*b; }
+
+  function samplePixel(img,w,x,y){
+    const xi = Math.max(0, Math.min(w-1, x|0));
+    const yi = Math.max(0, Math.min((img.data.length/(w*4))-1, y|0));
+    const idx = (yi*w + xi)*4;
+    return [img.data[idx], img.data[idx+1], img.data[idx+2]];
+  }
+
+  function computeBackgroundColor(img, w, h){
+    // Average 6px strips on left and right 2% width
+    const margin = Math.max(2, Math.floor(w*0.02));
+    let sumL=[0,0,0], sumR=[0,0,0], nL=0, nR=0;
+    for (let y=0; y<h; y+=Math.max(1, (h/200)|0)){
+      for (let x=0; x<margin; x++){
+        const i = (y*w + x)*4;
+        sumL[0]+=img.data[i]; sumL[1]+=img.data[i+1]; sumL[2]+=img.data[i+2]; nL++;
+      }
+      for (let x=w-margin; x<w; x++){
+        const i = (y*w + x)*4;
+        sumR[0]+=img.data[i]; sumR[1]+=img.data[i+1]; sumR[2]+=img.data[i+2]; nR++;
+      }
+    }
+    const r = ((sumL[0]/Math.max(1,nL)) + (sumR[0]/Math.max(1,nR)))/2|0;
+    const g = ((sumL[1]/Math.max(1,nL)) + (sumR[1]/Math.max(1,nR)))/2|0;
+    const b = ((sumL[2]/Math.max(1,nL)) + (sumR[2]/Math.max(1,nR)))/2|0;
+    return {r,g,b,y:luminance(r,g,b)};
+  }
+
+  function autoDetectBoardFromFrame(){
+    if (!video.videoWidth || !video.videoHeight){
+      alert('Video not ready. Start capture and bring the game window into view.');
+      return null;
+    }
+    // Downscale for scanning
+    const scanW = 960;
+    const scale = scanW / video.videoWidth;
+    const scanH = Math.floor(video.videoHeight * scale);
+    const scanCanvas = document.createElement('canvas');
+    scanCanvas.width = scanW;
+    scanCanvas.height = scanH;
+    const sctx = scanCanvas.getContext('2d', { willReadFrequently: true });
+    sctx.drawImage(video, 0, 0, scanW, scanH);
+    const img = sctx.getImageData(0,0,scanW,scanH);
+    const bg = computeBackgroundColor(img, scanW, scanH);
+    const bgTol = 14; // background luminance tolerance
+
+    // Horizontal scan at mid-height
+    const yMid = (scanH/2)|0;
+    let left = 0, right = scanW-1;
+    // find first non-bg left
+    for (let x=0; x<scanW; x++){
+      const i = (yMid*scanW + x)*4;
+      const L = luminance(img.data[i], img.data[i+1], img.data[i+2]);
+      if (Math.abs(L - bg.y) > bgTol){ left = x; break; }
+    }
+    // find first non-bg right
+    for (let x=scanW-1; x>=0; x--){
+      const i = (yMid*scanW + x)*4;
+      const L = luminance(img.data[i], img.data[i+1], img.data[i+2]);
+      if (Math.abs(L - bg.y) > bgTol){ right = x; break; }
+    }
+    // Vertical scan near mid-width, require 30px continuous background run to consider outside
+    const xMid = ((left + right)/2)|0;
+    let top = 0, bottom = scanH-1;
+    for (let y=0; y<scanH; y++){
+      const i = (y*scanW + xMid)*4;
+      const L = luminance(img.data[i], img.data[i+1], img.data[i+2]);
+      if (Math.abs(L - bg.y) > bgTol){ top = y; break; }
+    }
+    for (let y=scanH-1; y>=0; y--){
+      const i = (y*scanW + xMid)*4;
+      const L = luminance(img.data[i], img.data[i+1], img.data[i+2]);
+      if (Math.abs(L - bg.y) > bgTol){ bottom = y; break; }
+    }
+
+    // Expand slightly inward to avoid borders
+    left = Math.max(0, left-2);
+    right = Math.min(scanW-1, right+2);
+    top = Math.max(0, top-2);
+    bottom = Math.min(scanH-1, bottom+2);
+
+    if (right - left < 50 || bottom - top < 50){
+      console.warn('Board detection failed: bounds too small.');
+      return null;
+    }
+
+    // Probe ~30 px inside bounds to estimate spacing (best-effort; fallback to equal spacing)
+    const inset = 30;
+    const pxL = Math.min(right-1, left+inset);
+    const pxR = Math.max(left+1, right-inset);
+    const pyT = Math.min(bottom-1, top+inset);
+    const pyB = Math.max(top+1, bottom-inset);
+
+    // Horizontal luminance along yProbe
+    const yProbe = ((pyT + pyB)/2)|0;
+    const spanW = pxR - pxL + 1;
+    const line = new Float32Array(spanW);
+    for (let x=pxL, j=0; x<=pxR; x++, j++){
+      const i = (yProbe*scanW + x)*4;
+      line[j] = luminance(img.data[i], img.data[i+1], img.data[i+2]);
+    }
+    // crude peak-to-valley to estimate gap ratio; fallback
+    let sumDiff = 0;
+    for (let i=1;i<spanW;i++) sumDiff += Math.abs(line[i]-line[i-1]);
+    const edgeDensity = sumDiff / Math.max(1, spanW);
+    // Heuristic gap ratio: more edges -> larger gaps presumed
+    const gapRatioX = Math.max(0.06, Math.min(0.18, (edgeDensity/60)));
+    const gapRatioY = gapRatioX; // assume similar in Y
+
+    // Map back to video space coordinates
+    const bx = left / scale;
+    const by = top / scale;
+    const bw = (right - left + 1) / scale;
+    const bh = (bottom - top + 1) / scale;
+
+    // Construct TileRect grid with equal steps minus estimated gaps
+    const stepX = bw / cols;
+    const stepY = bh / rows;
+    const tileW = stepX * (1 - gapRatioX);
+    const tileH = stepY * (1 - gapRatioY);
+    const gapX = stepX - tileW;
+    const gapY = stepY - tileH;
+    const tx = [];
+    let idx = 0;
+    for (let r=0; r<rows; r++){
+      for (let c=0; c<cols; c++){
+        const x = bx + c*stepX + gapX*0.5;
+        const y = by + r*stepY + gapY*0.5;
+        tx.push({ x, y, w: tileW, h: tileH, row:r, col:c, index:idx++ });
+      }
+    }
+
+    return { boardRect: {x:bx, y:by, w:bw, h:bh}, tileRects: tx };
+  }
+
+  function drawOverlay(hotIndex = -1){
+    // Size to video element box
+    const vw = video.clientWidth|0;
+    const vh = video.clientHeight|0;
+    overlay.width = vw;
+    overlay.height = vh;
+    ctxOv.clearRect(0,0,vw,vh);
+
+    if (!boardRect || !video.videoWidth) return;
+
+    // Transform from video natural size to displayed size
+    const scaleX = vw / video.videoWidth;
+    const scaleY = vh / video.videoHeight;
+
+    // Board rect
+    ctxOv.save();
+    ctxOv.strokeStyle = 'rgba(88,176,255,0.9)';
+    ctxOv.setLineDash([6,4]);
+    ctxOv.lineWidth = 2;
+    ctxOv.strokeRect(boardRect.x*scaleX, boardRect.y*scaleY, boardRect.w*scaleX, boardRect.h*scaleY);
+    ctxOv.restore();
+
+    // Optional hot highlight
+    if (hotIndex >= 0 && tileRects[hotIndex]){
+      const t = tileRects[hotIndex];
+      ctxOv.save();
+      ctxOv.lineWidth = 3;
+      ctxOv.strokeStyle = 'rgba(45,212,212,0.9)';
+      ctxOv.shadowColor = 'rgba(45,212,212,0.6)';
+      ctxOv.shadowBlur = 8;
+      ctxOv.strokeRect(t.x*scaleX, t.y*scaleY, t.w*scaleX, t.h*scaleY);
+      ctxOv.restore();
+    }
+  }
+
+  function ensureTileState(){
+    tileState = tileRects.map(() => ({
+      baseline: 0,
+      delta: 0,
+      energyBuf: new Float32Array(config.energyWindow),
+      energySum: 0,
+      eIdx: 0,
+      hold: 0,
+      refractory: 0,
+      belowLow: true,
+      lastHotTs: 0
+    }));
+    // Precompute 5x5 sample offsets (15%-85%)
+    sampleOffsets = tileRects.map((t) => {
+      const pts = [];
+      const insetX = t.w * 0.15;
+      const insetY = t.h * 0.15;
+      const wSpan = t.w * 0.70;
+      const hSpan = t.h * 0.70;
+      const nx = 5, ny = 5;
+      for (let yi=0; yi<ny; yi++){
+        for (let xi=0; xi<nx; xi++){
+          const x = insetX + (wSpan)*(xi/(nx-1));
+          const y = insetY + (hSpan)*(yi/(ny-1));
+          pts.push([x, y]);
+        }
+      }
+      return pts;
+    });
+  }
+
+  // ---------------- Color Masks ----------------
+  function isTealRGB(r,g,b){
+    // Teal: g>=96, b>=96, g>=1.25r, b>=1.15r, and g<=1.6*b
+    if (g>=96 && b>=96 && g>=1.25*r && b>=1.15*r && g<=1.6*b) return true;
+    return false;
+  }
+  function isGreenRGB(r,g,b){
+    // Green: g>=110, g>=1.4r, g>=1.25b
+    if (g>=110 && g>=1.4*r && g>=1.25*b) return true;
+    return false;
+  }
+
+  // ---------------- Calibration ----------------
+  function calibrateBaselines(){
+    if (!hasBoard) return;
+    // Read a single frame board-only and set baselines to current luminance per tile
+    const data = readBoardImageData();
+    if (!data) return;
+    for (let i=0;i<tileRects.length;i++){
+      const t = tileRects[i];
+      const avgL = avgTileLuminance(data, t);
+      tileState[i].baseline = avgL;
+      tileState[i].delta = 0;
+      tileState[i].energyBuf.fill(0);
+      tileState[i].energySum = 0;
+      tileState[i].eIdx = 0;
+      tileState[i].hold = 0;
+      tileState[i].refractory = 0;
+      tileState[i].belowLow = true;
+    }
+    warmupStartTs = performance.now();
+  }
+
+  // ---------------- Frame Processing ----------------
+  function readBoardImageData(){
+    if (!boardRect || !video.videoWidth) return null;
+    work.width = Math.max(2, Math.floor(boardRect.w));
+    work.height = Math.max(2, Math.floor(boardRect.h));
+    wctx.drawImage(
+      video,
+      boardRect.x, boardRect.y, boardRect.w, boardRect.h,
+      0, 0, work.width, work.height
+    );
+    return wctx.getImageData(0, 0, work.width, work.height);
+  }
+
+  function avgTileLuminance(img, t){
+    // sample sparse 5x5 using precomputed offsets scaled to work canvas coords
+    const sx = work.width / boardRect.w;
+    const sy = work.height / boardRect.h;
+    const off = sampleOffsets[t.index];
+    let sum=0;
+    for (let i=0;i<off.length;i++){
+      const ox = off[i][0]*sx + (t.x - boardRect.x)*sx;
+      const oy = off[i][1]*sy + (t.y - boardRect.y)*sy;
+      const xi = Math.max(0, Math.min(work.width-1, ox|0));
+      const yi = Math.max(0, Math.min(work.height-1, oy|0));
+      const idx = (yi*work.width + xi)*4;
+      sum += luminance(img.data[idx], img.data[idx+1], img.data[idx+2]);
+    }
+    return sum / off.length;
+  }
+
+  function classifyTileRGB(img, t){
+    const sx = work.width / boardRect.w;
+    const sy = work.height / boardRect.h;
+    const off = sampleOffsets[t.index];
+    let tealHits=0, greenHits=0;
+    for (let i=0;i<off.length;i++){
+      const ox = off[i][0]*sx + (t.x - boardRect.x)*sx;
+      const oy = off[i][1]*sy + (t.y - boardRect.y)*sy;
+      const xi = Math.max(0, Math.min(work.width-1, ox|0));
+      const yi = Math.max(0, Math.min(work.height-1, oy|0));
+      const idx = (yi*work.width + xi)*4;
+      const r = img.data[idx], g = img.data[idx+1], b = img.data[idx+2];
+      if (isTealRGB(r,g,b)) tealHits++;
+      if (isGreenRGB(r,g,b)) greenHits++;
+    }
+    return {
+      teal: tealHits >= 3,
+      green: greenHits >= 3
+    };
+  }
+
+  function updateEnergy(tsNow, i, delta){
+    const st = tileState[i];
+    const v = Math.max(0, delta - config.thrLow);
+    const old = st.energyBuf[st.eIdx];
+    st.energyBuf[st.eIdx] = v;
+    st.eIdx = (st.eIdx + 1) % config.energyWindow;
+    st.energySum += v - old;
+    const energyThr = (config.thrHigh - config.thrLow) * config.energyScale;
+    return st.energySum >= energyThr;
+  }
+
+  function handleFSMFrame(tsNow, events){
+    // events: { reveals: number[], inputs: number[], hotIndex: number }
+    const surgeLimit = Math.floor(tileRects.length * config.surgeRejectPct);
+    const totalEvents = events.reveals.length + events.inputs.length;
+    if (totalEvents > surgeLimit){
+      // discard this frame
+      return { transitioned:false, hot: -1 };
+    }
+
+    let transitioned=false, hot=-1;
+
+    const timeSinceWarmup = tsNow - warmupStartTs;
+    const inWarmup = timeSinceWarmup < config.warmupMs;
+
+    switch(phase){
+      case 'idle':
+        // We don't accept events in idle; we just wait for Start Detection
+        break;
+
+      case 'armed':
+        // Start reveal only if teal appears; requireColorToStartReveal enforces this
+        if (!inWarmup){
+          if (config.requireColorToStartReveal && events.reveals.length>0){
+            phase = 'reveal';
+            revealSeq = [];
+            inputSeq = [];
+            revealStartTs = tsNow;
+            lastClusterTs = tsNow;
+            // Accept reveals in this frame (order stable by index)
+            for (const idx of events.reveals){
+              revealSeq.push(idx);
+              tileState[idx].lastHotTs = tsNow;
+              hot = idx;
+            }
+            transitioned = true;
+          }
+        }
+        break;
+
+      case 'reveal': {
+        const hardElapsed = tsNow - revealStartTs;
+        const sinceCluster = tsNow - lastClusterTs;
+
+        if (!inWarmup){
+          if (events.reveals.length>0){
+            for (const idx of events.reveals){
+              revealSeq.push(idx);
+              tileState[idx].lastHotTs = tsNow;
+              hot = idx;
+            }
+            lastClusterTs = tsNow;
+          }
+        }
+        // End reveal if expected length reached OR timeouts
+        if (revealSeq.length >= revealLenExpected || hardElapsed >= config.revealHardTimeoutMs || sinceCluster >= config.clusterGapMs){
+          phase = 'waiting-input';
+          inputSeq = [];
+          inputStartTs = tsNow;
+          transitioned = true;
+        }
+        break;
+      }
+
+      case 'waiting-input': {
+        const inputElapsed = tsNow - inputStartTs;
+        if (!inWarmup){
+          if (events.inputs.length>0){
+            for (const idx of events.inputs){
+              inputSeq.push(idx);
+              tileState[idx].lastHotTs = tsNow;
+              hot = idx;
+            }
+          }
+        }
+        // Auto-advance when inputs == expected
+        if (inputSeq.length >= revealLenExpected){
+          // Next round
+          roundIndex += 1;
+          revealLenExpected = 3 + (roundIndex);
+          phase = 'rearming';
+          rearmTs = tsNow;
+          // Clear pattern for next round view
+          revealSeq = [];
+          inputSeq = [];
+          transitioned = true;
+        } else if (inputElapsed >= config.inputTimeoutMs){
+          // Timeout: rearm but keep round index same (optional). We'll rearm and don't penalize.
+          phase = 'rearming';
+          rearmTs = tsNow;
+          revealSeq = [];
+          inputSeq = [];
+          transitioned = true;
+        }
+        break;
+      }
+
+      case 'rearming': {
+        if (tsNow - rearmTs >= config.rearmDelayMs){
+          phase = 'armed';
+          transitioned = true;
+        }
+        break;
+      }
+    }
+
+    return { transitioned, hot };
+  }
+
+  function processFrame(tsNow){
+    if (!hasBoard || !detectionActive) return { hot: -1 };
+    const img = readBoardImageData();
+    if (!img) return { hot: -1 };
+
+    const tealIndices = [];
+    const greenIndices = [];
+
+    // Evaluate per-tile
+    for (let i=0;i<tileRects.length;i++){
+      const t = tileRects[i];
+      const st = tileState[i];
+
+      // color classification from samples
+      const cls = classifyTileRGB(img, t);
+
+      // luminance & EMA
+      const avgL = avgTileLuminance(img, t);
+      const base = st.baseline = st.baseline*(1-config.emaAlpha) + avgL*config.emaAlpha;
+      const delta = st.delta = avgL - base;
+
+      const inWarmup = (tsNow - warmupStartTs) < config.warmupMs;
+      if (inWarmup) {
+        // During warmup we only set baseline, no trigger
+        st.belowLow = delta <= config.thrLow;
+        st.hold = (delta >= config.thrHigh) ? Math.min(config.holdFrames, st.hold+1) : 0;
+        continue;
+      }
+
+      // Hysteresis / refractory
+      if (delta <= config.thrLow){
+        st.belowLow = true;
+        st.refractory = 0; // bypass refractory once below low
+      }else{
+        st.belowLow = false;
+        if (st.refractory > 0) st.refractory--;
+      }
+
+      // Hold
+      if (delta >= config.thrHigh){
+        st.hold = Math.min(config.holdFrames, st.hold+1);
+      }else{
+        st.hold = 0;
+      }
+      const byHold = (st.hold >= config.holdFrames);
+
+      // Energy
+      const byEnergy = updateEnergy(tsNow, i, delta);
+
+      const canTrigger = (st.refractory === 0) || st.belowLow;
+      const wantsTrigger = canTrigger && (byHold || byEnergy);
+
+      if (wantsTrigger){
+        // Classification gating by phase: teal for reveal, green for input
+        if (phase === 'armed' || phase === 'reveal'){
+          if (cls.teal){
+            tealIndices.push(i);
+            // Set refractory on trigger
+            st.refractory = config.refractoryFrames;
+          }
+        } else if (phase === 'waiting-input'){
+          if (cls.green){
+            greenIndices.push(i);
+            st.refractory = config.refractoryFrames;
+          }
+        }
+      }
+    }
+
+    // Surge rejection and FSM transition/process
+    const res = handleFSMFrame(tsNow, { reveals: tealIndices, inputs: greenIndices, hotIndex: -1 });
+
+    return { hot: res.hot };
+  }
+
+  // ---------------- Loop ----------------
+  function onFrameRaf(){
+    if (!running) return;
+    const tsNow = performance.now();
+
+    // FPS calc (approx)
+    framesInBucket++;
+    if (tsNow - lastFPSTs >= 1000){
+      elFPS.textContent = String(framesInBucket);
+      framesInBucket = 0;
+      lastFPSTs = tsNow;
+    }
+
+    // Process
+    let hot = -1;
+    if (detectionActive){
+      const { hot: h } = processFrame(tsNow);
+      hot = h;
+      updateStatus();
+      renderSequence();
+    }
+    drawOverlay(hot);
+
+    requestAnimationFrame(onFrameRaf);
+  }
+
+  function onFrame(now, metadata){
+    if (!running) return;
+
+    // FPS from rVFC: use frames per sec via timestamps
+    framesInBucket++;
+    if (now - lastFPSTs >= 1000){
+      elFPS.textContent = String(framesInBucket);
+      framesInBucket = 0;
+      lastFPSTs = now;
+    }
+
+    // Process
+    let hot = -1;
+    if (detectionActive){
+      const { hot: h } = processFrame(now);
+      hot = h;
+      updateStatus();
+      renderSequence();
+    }
+    drawOverlay(hot);
+
+    video.requestVideoFrameCallback(onFrame);
+  }
+
+  function startLoop(){
+    // resize overlay every tick via drawOverlay sizing to video client box
+    lastFPSTs = performance.now();
+    framesInBucket = 0;
+    if ('requestVideoFrameCallback' in HTMLVideoElement.prototype && typeof video.requestVideoFrameCallback === 'function'){
+      video.requestVideoFrameCallback(onFrame);
+    }else{
+      requestAnimationFrame(onFrameRaf);
+    }
+  }
+
+  // ---------------- Events ----------------
+  btnCapture.addEventListener('click', startCapture);
+  btnStopCapture.addEventListener('click', () => {
+    stopCapture();
+    resetDetectionState({ clearBoard:true });
+  });
+
+  btnDetectBoard.addEventListener('click', () => {
+    const res = autoDetectBoardFromFrame();
+    if (!res){
+      alert('Board detection failed. Ensure the game board is visible and try again.');
+      return;
+    }
+    boardRect = res.boardRect;
+    tileRects = res.tileRects;
+    hasBoard = true;
+    ensureTileState();
+    calibrateBaselines(); // also triggers warmup
+    drawOverlay();
+  });
+
+  btnCalibrate.addEventListener('click', () => {
+    if (!hasBoard){
+      alert('Detect the board first.');
+      return;
+    }
+    calibrateBaselines();
+    updateStatus();
+  });
+
+  btnStart.addEventListener('click', () => {
+    if (!stream){
+      alert('Start capture first.');
+      return;
+    }
+    if (!hasBoard){
+      alert('Auto Detect Board first.');
+      return;
+    }
+    detectionActive = true;
+    phase = 'armed';
+    warmupStartTs = performance.now(); // minor warmup when starting detection
+    btnStart.disabled = true;
+    btnStop.disabled = false;
+    updateStatus();
+  });
+
+  btnStop.addEventListener('click', () => {
+    detectionActive = false;
+    phase = 'idle';
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+    updateStatus();
+  });
+
+  selDifficulty.addEventListener('change', (e) => {
+    difficulty = selDifficulty.value;
+    updateGridFromDifficulty();
+    // Changing difficulty clears state and invalidates board/tile rects
+    resetDetectionState({ clearBoard:true });
+  });
+
+  btnRestoreDefaults.addEventListener('click', () => {
+    Object.assign(config, defaultConfig);
+    createConfigGrid();
+  });
+
+  // ---------------- Init ----------------
+  updateGridFromDifficulty();
+  createConfigGrid();
+  resetDetectionState({ clearBoard:true });
+
+  // ---------------- Accept: Idle screen guard (Train button case) ----------------
+  // Note: The warmup + requireColorToStartReveal + surgeReject will prevent spurious reveals
+  // on idle screens (e.g., cyan "Train" buttons). Teal start is required to enter reveal.
+
+})();
+</script>
+</body>
+</html>
